@@ -1,0 +1,17 @@
+[PROTECCIO]
+IPaddr=1.2.3.4
+SSL=1
+SrvCert=HSM1.crt
+
+[PROTECCIO]
+IPaddr=2.3.4.5
+SSL=1
+SrvCert=HSM2.crt
+
+[CLIENT]
+Mode=2
+shortTimeout=1
+LoggingLevel=7
+LogFile=/home/sk-api/pkcs11.log
+ClntKey=client.key
+ClntCert=client.crt

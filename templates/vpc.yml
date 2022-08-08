@@ -1,0 +1,705 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC stack
+Parameters:
+  ProjectName:
+    Type: String
+  VpcName:
+    Type: String
+  AmazonLinuxArmAMIID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-arm64-gp2
+  AmazonLinuxAMIID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2
+  WithNAT:
+    Type: String
+    AllowedValues:
+      - 'false'
+      - 'true'
+  WithBastion:
+    Type: String
+    AllowedValues:
+      - 'false'
+      - 'true'
+  NeedPrivateAWSServiceAccess:
+    Type: String
+    AllowedValues:
+      - 'false'
+      - 'true'
+  EIPAllocationIDs:
+    Type: CommaDelimitedList
+    Description: The list of EIP to use for the NAT
+    Default: ''
+  ToggleMainResourceCreation:
+    Type: String
+    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
+    AllowedValues:
+      - 'false'
+      - 'true'
+
+Conditions:
+  bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
+  bWithNAT: !Equals [ !Ref WithNAT, 'true' ]
+  bCreateNATInstances: !And
+    - Condition: bToggleMainResourceCreation
+    - Condition: bWithNAT
+  bWithBastion: !Equals [ !Ref WithBastion, 'true' ]
+  bCreateBastionInstance: !And
+    - Condition: bToggleMainResourceCreation
+    - Condition: bWithBastion
+  bCreateEIPAssoc: !And
+    - Condition: bCreateNATInstances
+    - !Not [ !Equals [ !Join [ ",", !Ref EIPAllocationIDs ], "" ] ]
+  bCreateOptionalInterfaceEndpoints: !And
+    - !Equals [ !Ref NeedPrivateAWSServiceAccess, 'true' ]
+    - !Not
+      - Condition: bWithNAT
+    - Condition: bToggleMainResourceCreation
+
+Mappings:
+  VpcConfig:
+    VPC:
+      CIDR: "10.42.0.0/24"
+    Public1:
+      CIDR: "10.42.0.16/28"
+    Public2:
+      CIDR: "10.42.0.32/28"
+    Public3:
+      CIDR: "10.42.0.48/28"
+    Private1:
+      CIDR: "10.42.0.64/26"
+    Private2:
+      CIDR: "10.42.0.128/26"
+    Private3:
+      CIDR: "10.42.0.192/26"
+
+Resources:
+#################
+# VPC & Subnets #
+#################
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - VPC
+          - CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub vpc-${ProjectName}-${VpcName}
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - Private1
+          - CIDR
+      AvailabilityZone: !Join ['', [!Ref 'AWS::Region', 'a']]
+      Tags:
+        - Key: Network
+          Value: Private
+        - Key: Name
+          Value: !Sub subnet-${ProjectName}-${VpcName}-private-1
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - Private2
+          - CIDR
+      AvailabilityZone: !Join ['', [!Ref 'AWS::Region', 'b']]
+      Tags:
+        - Key: Network
+          Value: Private
+        - Key: Name
+          Value: !Sub subnet-${ProjectName}-${VpcName}-private-2
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - Private3
+          - CIDR
+      AvailabilityZone: !Join ['', [!Ref 'AWS::Region', 'c']]
+      Tags:
+        - Key: Network
+          Value: Private
+        - Key: Name
+          Value: !Sub subnet-${ProjectName}-${VpcName}-private-3
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - Public1
+          - CIDR
+      AvailabilityZone: !Join ['', [!Ref 'AWS::Region', 'a']]
+      Tags:
+        - Key: Network
+          Value: Public
+        - Key: Name
+          Value: !Sub subnet-${ProjectName}-${VpcName}-public-1
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - Public2
+          - CIDR
+      AvailabilityZone: !Join ['', [!Ref 'AWS::Region', 'b']]
+      Tags:
+        - Key: Network
+          Value: Public
+        - Key: Name
+          Value: !Sub subnet-${ProjectName}-${VpcName}-public-2
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock:
+        Fn::FindInMap:
+          - VpcConfig
+          - Public3
+          - CIDR
+      AvailabilityZone: !Join ['', [!Ref 'AWS::Region', 'c']]
+      Tags:
+        - Key: Network
+          Value: Public
+        - Key: Name
+          Value: !Sub subnet-${ProjectName}-${VpcName}-public-3
+
+################
+# Route tables #
+################
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !If [bWithNAT, !Sub 'rt-${ProjectName}-${VpcName}-privateA', !Sub 'rt-${ProjectName}-${VpcName}-private']
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: bWithNAT
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub rt-${ProjectName}-${VpcName}-privateB
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !If [bWithNAT, !Ref PrivateRouteTable2, !Ref PrivateRouteTable1]
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Condition: bWithNAT
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub rt-${ProjectName}-${VpcName}-privateC
+  PrivateSubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !If [bWithNAT, !Ref PrivateRouteTable3, !Ref PrivateRouteTable1]
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub rt-${ProjectName}-${VpcName}-public
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+####################
+# Internet Gateway #
+####################
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub igw-${ProjectName}-${VpcName}
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+       RouteTableId: !Ref PublicRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId: !Ref IGW
+
+#################
+# NAT instances #
+#################
+  NATSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: bWithNAT
+    Properties:
+      GroupName: !Sub scg-${ProjectName}-${VpcName}-natintances
+      GroupDescription: Allow connexions from the VPC
+      SecurityGroupIngress:
+        - CidrIp: !GetAtt VPC.CidrBlock
+          IpProtocol: -1
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      Tags:
+        -
+          Key: Name
+          Value: !Sub scg-${ProjectName}-${VpcName}-natintances
+      VpcId: !Ref VPC
+
+  NATInstanceLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: bWithNAT
+    Properties:
+      LaunchTemplateData:
+        InstanceType: t4g.nano
+        ImageId: !Ref AmazonLinuxArmAMIID
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
+              VolumeType: gp3
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            Groups:
+              - !GetAtt NATSecurityGroup.GroupId
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash
+              # Enable NAT on iptables
+              yum install -y iptables-services
+              systemctl enable iptables
+              systemctl start iptables
+              iptables -t nat -A POSTROUTING -o eth0 -s ${VPC.CidrBlock} -j MASQUERADE
+              iptables -I FORWARD 1 -o eth0 -j ACCEPT
+              service iptables save
+              # Enable IP forward on Kernel
+              echo 1 > /proc/sys/net/ipv4/ip_forward
+              echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/90-ipforward.conf
+              # Disable SSM
+              yum erase -y amazon-ssm-agent
+              # Disable SSH
+              systemctl stop sshd
+              systemctl disable sshd
+  NATInstance1:
+    Type: AWS::EC2::Instance
+    Condition: bCreateNATInstances
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref NATInstanceLaunchTemplate
+        Version: !GetAtt NATInstanceLaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet1
+          AssociatePublicIpAddress: !If [bCreateEIPAssoc, false, true]
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ec2-${ProjectName}-${VpcName}-nat1
+  NATInstance1IPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Condition: bCreateEIPAssoc
+    Properties:
+      AllocationId: !Select [0, !Ref EIPAllocationIDs]
+      InstanceId: !Ref NATInstance1
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Condition: bCreateNATInstances
+    Properties:
+       RouteTableId: !Ref PrivateRouteTable1
+       DestinationCidrBlock: 0.0.0.0/0
+       InstanceId: !Ref NATInstance1
+  NATInstance2:
+    Type: AWS::EC2::Instance
+    Condition: bCreateNATInstances
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref NATInstanceLaunchTemplate
+        Version: !GetAtt NATInstanceLaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet2
+          AssociatePublicIpAddress: !If [bCreateEIPAssoc, false, true]
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ec2-${ProjectName}-${VpcName}-nat2
+  NATInstance2IPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Condition: bCreateEIPAssoc
+    Properties:
+      AllocationId: !Select [1, !Ref EIPAllocationIDs]
+      InstanceId: !Ref NATInstance2
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Condition: bCreateNATInstances
+    Properties:
+       RouteTableId: !Ref PrivateRouteTable2
+       DestinationCidrBlock: 0.0.0.0/0
+       InstanceId: !Ref NATInstance2
+  NATInstance3:
+    Type: AWS::EC2::Instance
+    Condition: bCreateNATInstances
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref NATInstanceLaunchTemplate
+        Version: !GetAtt NATInstanceLaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet3
+          AssociatePublicIpAddress: !If [bCreateEIPAssoc, false, true]
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: !Sub ec2-${ProjectName}-${VpcName}-nat3
+  NATInstance3IPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Condition: bCreateEIPAssoc
+    Properties:
+      AllocationId: !Select [2, !Ref EIPAllocationIDs]
+      InstanceId: !Ref NATInstance3
+  PrivateRoute3:
+    Type: AWS::EC2::Route
+    Condition: bCreateNATInstances
+    Properties:
+       RouteTableId: !Ref PrivateRouteTable3
+       DestinationCidrBlock: 0.0.0.0/0
+       InstanceId: !Ref NATInstance3
+
+###########
+# Bastion #
+###########
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: bWithBastion
+    Properties:
+      GroupName: !Sub scg-${ProjectName}-${VpcName}-bastion
+      GroupDescription: Allow SSH connexions
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: -1
+      Tags:
+        -
+          Key: Name
+          Value: !Sub scg-${ProjectName}-${VpcName}-bastion
+      VpcId: !Ref VPC
+  BastionInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: bWithBastion
+    Properties:
+      Roles:
+        - !Ref BastionInstanceRole
+      InstanceProfileName: !Sub role-${ProjectName}-bastion
+  BastionInstanceRole:
+    Type: AWS::IAM::Role
+    Condition: bWithBastion
+    Properties:
+      RoleName: !Sub role-${ProjectName}-bastion
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/EC2InstanceConnect
+      Policies:
+        - PolicyName: CloudHSM
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: DescribeCloudHSMCluster
+                Effect: Allow
+                Action: cloudhsm:DescribeClusters
+                Resource: '*'
+      Path: /
+  BastionInstanceLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Condition: bWithBastion
+    Properties:
+      LaunchTemplateData:
+        InstanceType: t3.nano
+        ImageId: !Ref AmazonLinuxAMIID
+        IamInstanceProfile:
+          Arn: !GetAtt BastionInstanceProfile.Arn
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
+              VolumeType: gp3
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: true
+            Groups:
+              - !GetAtt BastionSecurityGroup.GroupId
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash
+              # Install jq
+              yum install -y jq
+              # Install instance-connect-cli
+              pip3 install ec2instanceconnectcli
+              sudo -u ec2-user aws configure set default.region ${AWS::Region}
+              # Install CloudHSM management
+              wget https://s3.amazonaws.com/cloudhsmv2-software/CloudHsmClient/EL7/cloudhsm-pkcs11-latest.el7.x86_64.rpm
+              yum install -y ./cloudhsm-pkcs11-latest.el7.x86_64.rpm
+              rm ./cloudhsm-pkcs11-latest.el7.x86_64.rpm
+              wget https://s3.amazonaws.com/cloudhsmv2-software/CloudHsmClient/EL7/cloudhsm-mgmt-util-latest.el7.x86_64.rpm
+              yum install -y ./cloudhsm-mgmt-util-latest.el7.x86_64.rpm
+              rm ./cloudhsm-mgmt-util-latest.el7.x86_64.rpm
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Condition: bCreateBastionInstance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref BastionInstanceLaunchTemplate
+        Version: !GetAtt BastionInstanceLaunchTemplate.LatestVersionNumber
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ec2-${ProjectName}-${VpcName}-bastion
+
+#############
+# Endpoints #
+#############
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        !If 
+          - bWithNAT
+          - - !Ref PublicRouteTable
+            - !Ref PrivateRouteTable1
+            - !Ref PrivateRouteTable2
+            - !Ref PrivateRouteTable3
+          - - !Ref PublicRouteTable
+            - !Ref PrivateRouteTable1
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref VPC
+  DynamoDBEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        !If 
+          - bWithNAT
+          - - !Ref PublicRouteTable
+            - !Ref PrivateRouteTable1
+            - !Ref PrivateRouteTable2
+            - !Ref PrivateRouteTable3
+          - - !Ref PublicRouteTable
+            - !Ref PrivateRouteTable1
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      VpcId: !Ref VPC
+
+#######################
+# Interface endpoints #
+#######################
+  InterfaceEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub scg-${ProjectName}-${VpcName}-interface-endpoint
+      GroupDescription: Allow HTTPS connexions
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt VPC.CidrBlock
+      Tags:
+        - Key: Name
+          Value: !Sub scg-${ProjectName}-${VpcName}-interface-endpoint
+      VpcId: !Ref VPC
+
+  APIGatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bToggleMainResourceCreation
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.execute-api
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
+
+################################
+# Optional Interface endpoints #
+################################
+  SSMEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bCreateOptionalInterfaceEndpoints
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
+  SSMMessageEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bCreateOptionalInterfaceEndpoints
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
+  EC2Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bCreateOptionalInterfaceEndpoints
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
+  CloudHSMEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bCreateOptionalInterfaceEndpoints
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.cloudhsmv2
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
+  ASGEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bCreateOptionalInterfaceEndpoints
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.autoscaling
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
+
+Outputs:
+  VPCID:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:VPCID
+  VPCDefaultSG:
+    Description: VPC Default Security Group ID
+    Value: !GetAtt VPC.DefaultSecurityGroup
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:VPCDefaultSG
+  VPCCIDR:
+    Description: VPC CIDR
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:VPCCIDR
+  PrivateSubnet1ID:
+    Description: Private subnet 1 ID
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:PrivateSubnet1ID
+  PrivateSubnet2ID:
+    Description: Private subnet 2 ID
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:PrivateSubnet2ID
+  PrivateSubnet3ID:
+    Description: Private subnet 3 ID
+    Value: !Ref PrivateSubnet3
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:PrivateSubnet3ID
+  PublicSubnet1ID:
+    Description: Public subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:PublicSubnet1ID
+  PublicSubnet2ID:
+    Description: Public subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:PublicSubnet2ID
+  PublicSubnet3ID:
+    Description: Public subnet 3 ID
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:PublicSubnet3ID
+  BastionSG:
+    Description: ID of the bastion SG
+    Condition: bWithBastion
+    Value: !GetAtt BastionSecurityGroup.GroupId
+    Export:
+      Name: !Sub ${ProjectName}:${VpcName}:BastionSG

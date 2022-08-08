@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Load commons constants and functions
+. /usr/lib/sovereign-keys/commons.sh
+
+for LINE in $(get_automount_devices) ; do
+    DEVICE=$(echo $LINE | cut -d: -f1)
+    MOUNT_POINT=$(echo $LINE | cut -d: -f2-)
+    echo "Invoking: sk-mount-dev --ignore-nitro-check $DEVICE $MOUNT_POINT"
+    sk-mount --ignore-nitro-check $DEVICE $MOUNT_POINT
+done

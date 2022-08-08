@@ -1,0 +1,536 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CICD pipeline and tools for deploying Sovereign Keys
+
+Parameters:
+  GloballyUniqueCompanyIdentifier:
+    Type: String
+    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
+  ProjectName:
+    Type: String
+    Description: Name of the project to insert in all the resource names
+    Default: sovereign-keys
+
+Resources:
+# Roles / Repo / KMS key / Pipeline for master
+##############
+# CodeCommit #
+##############
+  CodeCommitRepo:
+    Type: AWS::CodeCommit::Repository
+    DependsOn: AutoscalingSLR
+    Properties:
+      RepositoryDescription: !Sub Code repository for project ${ProjectName}
+      RepositoryName: !Sub cc-${ProjectName}-repo
+
+##################################
+# Autoscaling ServiceLinked Role #
+##################################
+  AutoscalingSLR:
+    Type: AWS::IAM::ServiceLinkedRole
+    Properties:
+      AWSServiceName: autoscaling.amazonaws.com
+      Description: !Sub AutoscalingGroup Service Linked-role of the project ${ProjectName}
+      CustomSuffix: !Ref ProjectName
+
+###########
+# KMS Key #
+###########
+  KMSKey:
+    Type: AWS::KMS::Key
+    DependsOn: TriggerEventRule
+    Properties:
+      Description: !Sub Main KMS key of project ${ProjectName}
+      KeyPolicy:
+        Version: 2012-10-17
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+          - Sid: Allow operations for autoscaling role
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/${AutoscalingSLR}
+            Action:
+              - kms:Decrypt
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          - Sid: Allow grant for autoscaling role
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/${AutoscalingSLR}
+            Action:
+              - kms:CreateGrant
+            Resource: "*"
+            Condition:
+              Bool:
+                "kms:GrantIsForAWSResource": true
+  KMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/cmk-${ProjectName}
+      TargetKeyId: !Ref KMSKey
+
+###################
+# Artifact Bucket #
+###################
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${GloballyUniqueCompanyIdentifier}-${ProjectName}-pipeline-artifacts
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref KMSKey
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersionAfter7Days
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 7
+            ExpiredObjectDeleteMarker: true
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+  ArtifactBucketEmptier:
+     Type: Custom::BucketEmptier
+     DependsOn:
+      - ArtifactBucket
+      - S3BucketEmptierLambdaRoleBasicPolicy
+      - S3BucketEmptierLambdaRole
+      - S3BucketEmptierLambdaLogGroup
+     Properties:
+       ServiceToken: !GetAtt S3BucketEmptierLambda.Arn
+       BucketName: !Ref ArtifactBucket
+
+#################
+# Build project #
+#################
+  BuildProjectRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-cbp-${ProjectName}-builder
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub policy-cbp-${ProjectName}-builder
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}
+                  - !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}/*
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:*:${AWS::AccountId}:log-group:/aws/codebuild/cbp-${ProjectName}-builder:*
+      Path: /
+  BuildProjectLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: CodeCommitRepo
+    Properties:
+      LogGroupName: !Sub /aws/codebuild/cbp-${ProjectName}-builder
+      RetentionInDays: 14
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    DependsOn:
+      - BuildProjectLogGroup
+    Properties:
+      Name: !Sub cbp-${ProjectName}-builder
+      Description: !Sub Project building things for the project ${ProjectName}
+      EncryptionKey: !GetAtt KMSKey.Arn
+      ServiceRole: !GetAtt BuildProjectRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+        EnvironmentVariables:
+          - Name: BUCKET
+            Value: !Ref ArtifactBucket
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: ./config/buildspec.yml
+      Cache:
+        Type: S3
+        Location: !Sub ${ArtifactBucket}/codebuildcache
+      TimeoutInMinutes: 5
+      Tags:
+        - Key: Name
+          Value: !Sub cbp-${ProjectName}-builder
+
+############
+# Pipeline #
+############
+  PipeLineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-${ProjectName}-codepipeline
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: policy-codepipeline
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - codepipeline:*
+                  - iam:ListRoles
+                  - cloudformation:Describe*
+                  - cloudFormation:List*
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:SetStackPolicy
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArtifactBucket}"
+                  - !Sub "arn:${AWS::Partition}:s3:::${ArtifactBucket}/*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: "*"
+                Condition:
+                  StringEqualsIfExists:
+                    "iam:PassedToService":
+                      - cloudformation.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+      Path: /
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+     - TriggerEventRule
+    Properties:
+      RoleArn: !GetAtt PipeLineRole.Arn
+      Name: !Sub cp-${ProjectName}-release
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Checkout
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              Configuration:
+                RepositoryName: !GetAtt CodeCommitRepo.Name
+                BranchName: master
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: CheckoutArtifact
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref BuildProject
+              RunOrder: 1
+              InputArtifacts:
+                - Name: CheckoutArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions:
+            - Name: DeployCloudformation
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                ChangeSetName: Deploy
+                ActionMode: CREATE_UPDATE
+                StackName: !Sub cfn-${ProjectName}-mainstack
+                Capabilities: CAPABILITY_NAMED_IAM
+                TemplatePath: BuildArtifact::main-template.yml
+                TemplateConfiguration: BuildArtifact::main-configuration.json
+                ParameterOverrides: !Sub '{"ProjectName": "${ProjectName}", "GloballyUniqueCompanyIdentifier": "${GloballyUniqueCompanyIdentifier}"}'
+                RoleArn: !GetAtt CFDeployerRole.Arn
+              InputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+        EncryptionKey:
+          Id: !Ref KMSKey
+          Type: KMS
+  CFDeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-${ProjectName}-CF-Deployer
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub policy-${ProjectName}-CF-Deployer
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                  - ec2:*
+                  - elasticloadbalancing:*
+                  - autoscaling:*
+                  - dynamodb:*
+                  - events:*
+                  - logs:*
+                  - ssm:*
+                  - lambda:*
+                  - apigateway:*
+                  - route53:*
+                  - cloudhsm:*
+                  - iam:*role*
+                  - iam:*InstanceProfile*
+                Resource: "*"
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}/*
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  - kms:GenerateDataKey*
+                  - kms:DescribeKey
+                Resource: !GetAtt KMSKey.Arn
+              - Effect: Allow
+                Action: kms:CreateGrant
+                Resource: !GetAtt KMSKey.Arn
+                Condition:
+                  Bool:
+                    "kms:GrantIsForAWSResource": true
+      Path: /
+  TriggerEventRole:
+    Type: AWS::IAM::Role
+    DependsOn: BuildProjectLogGroup
+    Properties:
+      RoleName: !Sub role-${ProjectName}-trigger-pipeline
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:cp-${ProjectName}-release
+      Path: /
+  TriggerEventRule:
+    Type: AWS::Events::Rule
+    DependsOn: TriggerEventRole
+    Properties:
+      Description: !Sub When branch master of repo ${CodeCommitRepo.Name} is updated, tigger pipeline cp-${ProjectName}-release
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - CodeCommit Repository State Change
+        resources:
+          - !GetAtt CodeCommitRepo.Arn
+        detail:
+          event:
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - master
+      Targets:
+        - Arn: !Sub arn:${AWS::Partition}:codepipeline:${AWS::Region}:${AWS::AccountId}:cp-${ProjectName}-release
+          RoleArn: !GetAtt TriggerEventRole.Arn
+          Id: !Sub cp-${ProjectName}-release
+
+#####################
+# S3 Bucket Emptier #
+#####################
+  S3BucketEmptierLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${S3BucketEmptierLambda}
+      RetentionInDays: 90
+  S3BucketEmptierLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cfn-custom-s3-bucket-emptier
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64 # Unfortunatly, for now, arm64 is not supported in Paris (eu-west-3)
+      Description: Lambda called by a CF Custom Resource to empty an S3 bucket before destroying it
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          def lambda_handler(event, context):
+              print(json.dumps(event, default=str))
+              try:
+                  bucket_name = event['ResourceProperties']['BucketName']
+                  if event['RequestType'] == 'Delete':
+                      print(f'Emptying {bucket_name}...')
+                      bucket = boto3.resource('s3').Bucket(bucket_name)
+                      bucket.object_versions.delete(BypassGovernanceRetention=True)
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  import traceback
+                  traceback.print_exc()
+                  responseData = {}
+                  responseData['Data'] = str(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+      MemorySize: 128
+      Timeout: 900
+      Role: !GetAtt S3BucketEmptierLambdaRole.Arn
+  S3BucketEmptierLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-lambda-cfn-custom-s3-bucket-emptier
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: working-rights
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:BypassGovernanceRetention
+                  - s3:ListBucket
+                  - s3:ListBucketVersions
+                Resource: '*'
+  S3BucketEmptierLambdaRoleBasicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref S3BucketEmptierLambdaRole
+      PolicyName: lambda-basic
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !GetAtt S3BucketEmptierLambdaLogGroup.Arn
+
+Outputs:
+  RepoName:
+    Description: The name of the CodeCommit repo
+    Value: !GetAtt CodeCommitRepo.Name
+  RepoUrlHttp:
+    Description: The HTTPS URL of the CodeCommit repo
+    Value: !GetAtt CodeCommitRepo.CloneUrlHttp
+  RepoUrlSsh:
+    Description: The SSH URL of the CodeCommit repo
+    Value: !GetAtt CodeCommitRepo.CloneUrlSsh
+  BucketName:
+    Description: The name of the S3 Artifact bucket
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: !Sub ${ProjectName}:S3ArtifactBucketName
+  AutoscalingSLRArn:
+    Description: The ARN of the AutocalingGroup Service Linked-role for the project
+    Value: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/${AutoscalingSLR}
+    Export:
+      Name: !Sub ${ProjectName}:AutoscalingSLRArn
+  KMSKeyID:
+    Description: KMS Key ID
+    Value: !Ref KMSKey
+    Export:
+      Name: !Sub ${ProjectName}:KMSKeyID

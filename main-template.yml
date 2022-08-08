@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Main project stack deployed by the CICD and containing specific nested stacks
+Parameters:
+  GloballyUniqueCompanyIdentifier:
+    Type: String
+    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
+  ProjectName:
+    Type: String
+  SKVPCNeedNat:
+    Type: String
+    Description: true or false, weither or not to add NAT instances to the SK API VPC. If no NAT instance, lots of expensive VPC endpoints will be created to allow SK instances to perform their job.
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Default: 'true'
+  EIPAllocationIDs:
+    Type: CommaDelimitedList
+    Description: The list of EIP to use for the NAT instances. It MUST either be empty or contain 3 values
+    Default: ''
+  HsmType:
+    Type: String
+    Description: The type of HSM we use as backend
+    AllowedValues:
+      - cloudhsm
+      - proteccio
+  InstanceType:
+    Type: String
+    Description: The type of instance we use for SK
+  SelfLockerOn:
+    Type: String
+    Description: true or false, weither or not to enable to self-locker process that ensure the SK instances are not accessible when they might have secret in memory.
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Default: 'true'
+  ObjectLockMode:
+    Type: String
+    Description: The Object Lock mode to use, either GOVERNANCE for testing purpose or COMPLIANCE for production workload. Lock duration is hard-coded to 10 years. Be careful with the COMPLIANCE mode, it is not possible to remove the objects AT ALL
+    AllowedValues:
+      - GOVERNANCE
+      - COMPLIANCE
+  ToggleMainResourceCreation:
+    Type: String
+    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Default: 'true'
+
+Resources:
+#######################################
+# DynamoDB onboarding Custom Resource #
+#######################################
+  DynDBOnboardLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${DynDBOnboardLambda}
+      RetentionInDays: 90
+  DynDBOnboardLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub cfn-custom-${ProjectName}-dyndb-onboard
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64 # Unfortunatly, for now, arm64 is not supported in Paris (eu-west-3)
+      Description: Lambda called by a CF Custom Resource to empty an S3 bucket before destroying it
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          import os
+          info_table = boto3.resource('dynamodb').Table(os.environ['INFO_TABLE_NAME'])
+          def lambda_handler(event, context):
+              print(json.dumps(event, default=str))
+              try:
+                  vpc_id = event['ResourceProperties']['VpcId']
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      item_to_put={'VPCID': vpc_id}
+                      if event['ResourceProperties'].get('EktName'):
+                          item_to_put['EktName']=event['ResourceProperties'].get('EktName')
+                      if event['ResourceProperties'].get('RemoteRoleARN'):
+                          item_to_put['RemoteRoleARN']=event['ResourceProperties'].get('RemoteRoleARN')
+                      info_table.put_item(Item=item_to_put)
+                  elif event['RequestType'] == 'Delete':
+                      info_table.delete_item(Key={'VPCID': vpc_id})
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  import traceback
+                  traceback.print_exc()
+                  responseData = {}
+                  responseData['Data'] = str(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt DynDBOnboardLambdaRole.Arn
+      Environment:
+        Variables:
+          INFO_TABLE_NAME: !GetAtt DataBackendStack.Outputs.VPCInfosTableName
+  DynDBOnboardLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-lambda-cfn-custom-${ProjectName}-dyndb-onboard
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: working-rights
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DataBackendStack.Outputs.VPCInfosTableName}
+  DynDBOnboardLambdaRoleBasicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref DynDBOnboardLambdaRole
+      PolicyName: lambda-basic
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !GetAtt DynDBOnboardLambdaLogGroup.Arn
+
+##########################
+# Sovereign Keys backend #
+##########################
+  DataBackendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        ObjectLockMode: !Ref ObjectLockMode
+      TemplateURL: ./templates/data-backend.yml
+      TimeoutInMinutes: 10
+  VPCAPI:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcName: api
+        CustomDynDBOnboardArn: !GetAtt DynDBOnboardLambda.Arn
+        WithNAT: !Ref SKVPCNeedNat
+        WithBastion: 'true'
+        NeedPrivateAWSServiceAccess: 'true'
+        EIPAllocationIDs: !Join [ ",", !Ref EIPAllocationIDs ]
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/vpc.yml
+      TimeoutInMinutes: 10
+  SovereignInstancesStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCAPI
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        SovereignKeysBucketName: !GetAtt DataBackendStack.Outputs.SovereignKeysBucketName
+        AuditBucketName: !GetAtt DataBackendStack.Outputs.AuditBucketName
+        VPCInfosTableName: !GetAtt DataBackendStack.Outputs.VPCInfosTableName
+        HsmType: !Ref HsmType
+        InstanceType: !Ref InstanceType
+        SelfLockerOn: !Ref SelfLockerOn
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/sovereign-instances.yml
+      TimeoutInMinutes: 10
+  RestApiStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        NlbArn: !GetAtt SovereignInstancesStack.Outputs.SovereignInstancesNlbArn
+        VPCInfosTableName: !GetAtt DataBackendStack.Outputs.VPCInfosTableName
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/restapi.yml
+      TimeoutInMinutes: 20
+
+###############################################################
+# VPC and Instance simulating a customer for testing purposes #
+###############################################################
+  VPCCustomerTest:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcName: test-customer
+        CustomDynDBOnboardArn: !GetAtt DynDBOnboardLambda.Arn
+        WithNAT: 'false'
+        WithBastion: 'false'
+        NeedPrivateAWSServiceAccess: 'false'
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/vpc.yml
+      TimeoutInMinutes: 10
+  CustomerTestStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCCustomerTest
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        CustomerName: test-customer
+      TemplateURL: ./templates/customer.yml
+      TimeoutInMinutes: 10

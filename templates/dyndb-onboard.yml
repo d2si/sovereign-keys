@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC stack
+Parameters:
+  CustomDynDBOnboardArn:
+    Type: String
+    Description: The ARN of the custom resource creating DynamoDB items automatically
+  VpcId:
+    Type: String
+  EktName:
+    Type: String
+    Default: ''
+  RoleArn:
+    Type: String
+    Default: ''
+
+Conditions:
+  bWithEktName: !Not [ !Equals [ !Ref EktName, '' ] ]
+  bWithRoleArn: !Not [ !Equals [ !Ref RoleArn, '' ] ]
+
+Resources:
+  CustomDynDBOnboard:
+     Type: Custom::CustomDynDBOnboard
+     Properties:
+       ServiceToken: !Ref CustomDynDBOnboardArn
+       VpcId: !Ref VpcId
+       EktName: !If [ bWithEktName, !Ref EktName, !Ref AWS::NoValue ]
+       RemoteRoleARN: !If [ bWithRoleArn, !Ref RoleArn, !Ref AWS::NoValue ]

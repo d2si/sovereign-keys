@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: The API
+
+Parameters:
+  GloballyUniqueCompanyIdentifier:
+    Type: String
+    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
+  ProjectName:
+    Type: String
+  ObjectLockMode:
+    Type: String
+    Description: The Object Lock mode to use, either GOVERNANCE for testing purpose or COMPLIANCE for production workload. Lock duration is hard-coded to 10 years. Be careful with the COMPLIANCE mode, it is not possible to remove the objects AT ALL
+    AllowedValues:
+      - GOVERNANCE
+      - COMPLIANCE
+
+Resources:
+#####################################
+# DynamoDB table with the VPC infos #
+#####################################
+  VPCInfosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: VPCID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: VPCID
+          KeyType: HASH
+      TableName: !Sub dyndb-${ProjectName}-vpc-infos
+
+#########################################
+# Sovereign Keys Bucket holding the EKT #
+#########################################
+  SovereignKeysBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${GloballyUniqueCompanyIdentifier}-${ProjectName}-ekt
+      VersioningConfiguration:
+        Status: Enabled
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule:
+          DefaultRetention:
+            Mode: !Ref ObjectLockMode
+            Years: 10
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+########################################
+# Audit Bucket holding the signed logs #
+########################################
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${GloballyUniqueCompanyIdentifier}-${ProjectName}-audit-logs
+      VersioningConfiguration:
+        Status: Enabled
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule: 
+          DefaultRetention:
+            Mode: !Ref ObjectLockMode
+            Years: 10
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  SovereignKeysBucketName:
+    Description: The name of the Sovereign Keys bucket
+    Value: !Ref SovereignKeysBucket
+  AuditBucketName:
+    Description: The name of the Sovereign Keys audit bucket
+    Value: !Ref AuditBucket
+  VPCInfosTableName:
+    Description: The name of the table with the VPC infos
+    Value: !Ref VPCInfosTable

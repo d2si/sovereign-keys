@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Customer stack
+Parameters:
+  GloballyUniqueCompanyIdentifier:
+    Type: String
+    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
+  ProjectName:
+    Type: String
+  CustomerName:
+    Type: String
+  Amzn2AMILatest:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2
+  ToggleMainResourceCreation:
+    Type: String
+    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
+    AllowedValues:
+      - 'false'
+      - 'true'
+
+Conditions:
+  bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
+
+Resources:
+  CustomerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref CustomerInstanceRole
+      InstanceProfileName: !Sub role-${ProjectName}-${CustomerName}-instance
+  CustomerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-${ProjectName}-${CustomerName}-instance
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: CustomerInstance
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: GetObjectS3
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub
+                      - arn:${AWS::Partition}:s3:::${bucket}/agent/*
+                      - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+              - Sid: KMS
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource:
+                  !Sub
+                    - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${keyid}
+                    - keyid: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
+      Path: /
+  EC2Instance: 
+    Type: AWS::EC2::Instance
+    Condition: bToggleMainResourceCreation
+    Properties: 
+      InstanceType: t3.micro
+      ImageId: !Ref Amzn2AMILatest
+      IamInstanceProfile: !Ref CustomerInstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: {Fn::ImportValue: !Sub '${ProjectName}:${CustomerName}:PublicSubnet1ID'}
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - {Fn::ImportValue: !Sub '${ProjectName}:${CustomerName}:VPCDefaultSG'}
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            KmsKeyId: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
+            VolumeType: gp3
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y jq
+
+  SKRoleArn:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-${ProjectName}-${CustomerName}-sk-api
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              AWS: !Ref AWS::AccountId
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: describe-instances
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: '*'
+        - PolicyName: push-logs
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub ${CustomerAuditBucket.Arn}/*
+      Path: /
+
+########################################
+# Audit Bucket holding the signed logs #
+########################################
+  CustomerAuditBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${GloballyUniqueCompanyIdentifier}-${ProjectName}-customer-audit-logs
+      VersioningConfiguration:
+        Status: Enabled
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule: 
+          DefaultRetention:
+            Mode: GOVERNANCE
+            Years: 10
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  SKRoleArn:
+    Description: Sovereign Keys role arn
+    Value: !GetAtt SKRoleArn.Arn
+    Export:
+      Name: !Sub ${ProjectName}:${CustomerName}:SKRoleArn

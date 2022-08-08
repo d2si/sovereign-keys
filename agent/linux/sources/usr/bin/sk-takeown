@@ -1,0 +1,132 @@
+#!/bin/bash
+
+
+# TODO
+# - Control openssl version >= 1.0
+# - Add retry mechanic when querying the API
+
+# Load commons constants and functions
+. /usr/lib/sovereign-keys/commons.sh
+
+usage () {
+    echo "Usage: $0 [<OPTIONS>] -i <source_instance_id> /dev/<device_name>"
+    echo ""
+    echo "Take ownership of a Sovereign Keys volume device that previously belonged to <source_instance_id>"
+    echo "Asks the sovereign key API to change the ownership of a secret"
+    echo ""
+    echo -e "-i|--source_instance <source_instance_id>\tMandatory. Give the instance_id to which the secret previously belonged"
+    echo ""
+    echo "OPTIONS:"
+    echo -e "-h|--help\t\t\tShow this help"
+    echo -e "--ignore-nitro-check\t\tBy default, Sovereign Keys require to be on a Nitro-based instance. This flag allows to ignore this prerequisite"
+}
+
+cleanup () {
+    echo "Cleaning up..."
+    umount_secret_store
+    umount_ram_fs
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -h|--help)
+            usage
+            exit 0
+        ;;
+        -i|--source_instance)
+            SOURCE_INSTANCE_ID="$2"
+            shift # past argument
+            shift # past value
+        ;;
+        --ignore-nitro-check)
+            IGNORE_NITRO_CHECK=YES
+            shift # past argument
+        ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+        ;;
+    esac
+done
+
+# Instance ID must match the regex
+if ! [[ $SOURCE_INSTANCE_ID =~ ^i-[a-f0-9]{17}$ ]] ; then
+    echo "Invalid value for source_instance_id"
+    usage
+    exit 2
+fi
+
+# Test nitro
+if ! is_nitro ; then
+    echo "This EC2 instance is not a Nitro-based instance. Sovereign Keys security depends on Nitro !!"
+    if [ -n "$IGNORE_NITRO_CHECK" ] ; then
+        echo "--ignore-nitro-check was set ; volume preparation will continue"
+    else
+        echo "You can use '--ignore-nitro-check' to ignore this warning. Exiting."
+        exit 3
+    fi
+fi
+
+# Should only have 1 positional argument
+if [ ${#POSITIONAL[@]} -ne 1 ] ; then
+    echo "Exactly one device is expected as argument"
+    usage
+    exit 2
+fi
+
+# Argument should be a volume /dev/something
+DEVICE="${POSITIONAL[0]}"
+if [ ! -b $DEVICE ] ; then
+    echo "$DEVICE is not a block device"
+    usage
+    exit 2
+fi
+
+# Exactly two partition must exist, else this volume was not properly prep-ed
+SECRET_PARTITION_DEVICE=${DEVICE}128
+PARTITION_DEVICE=${DEVICE}1
+if [ ! -b $SECRET_PARTITION_DEVICE ] || [ ! -b $PARTITION_DEVICE ] ; then
+    echo "$DEVICE is not a Sovereign Keys volume."
+    exit 4
+fi
+
+# Mount the Secret Store FS
+# Create the working space RAM disk
+mount_ram_fs
+if [ $? -ne 0 ] ; then echo "ERROR while creating the ram FS!!" ; exit 1 ; fi
+# Mount the Secret Store FS
+mount_secret_store $SECRET_PARTITION_DEVICE
+if [ $? -ne 0 ] ; then echo "ERROR while mounting the secret store!!" ; cleanup ; exit 1 ; fi
+
+# Retrieve the secret
+# Extract the volume UUID
+VOLUME_UUID=$(get_device_guid $DEVICE)
+# Encode the encrypted secret
+ENC_SECRET=$(get_encrypted_secret)
+echo -en "Asking Revolve Sovereign Key API to convert the secret...\t\t"
+RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"encrypted_secret\": \"$ENC_SECRET\", \"source_instance_id\": \"$SOURCE_INSTANCE_ID\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/convert-secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Control signatures
+echo -en "Verifying the signature of the encrypted version of the secret...\t"
+if ! verify_signature $(echo $RES | jq -r .encrypted_secret) $(echo $RES | jq -r .encrypted_secret_signature) ; then
+    echo "CRITICAL: Encrypted secret has not be created by the Revolve API"
+    cleanup
+    exit 1
+else
+    echo "OK"
+fi
+
+# Store the encrypted secret
+echo -en "Storing the new encrypted version of the secret...\t\t\t"
+store_encrypted_secret $(echo $RES | jq -r .encrypted_secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Unmounting everything
+cleanup
+
+echo "Success"
+exit 0

@@ -1,0 +1,199 @@
+#!/bin/bash
+
+
+# TODO
+# - Control openssl version >= 1.0
+# - Add retry mechanic when querying the API
+
+# Load commons constants and functions
+. /usr/lib/sovereign-keys/commons.sh
+
+usage () {
+    echo "Usage: $0 [<OPTIONS>] /dev/<device_name>"
+    echo ""
+    echo "Sovereign Keys volume device preparation"
+    echo "Takes a raw block device and configure it to be protected by the Sovereign Keys system"
+    echo ""
+    echo "OPTIONS:"
+    echo -e "-h|--help\t\t\tShow this help"
+    echo -e "-f|--filesystem <FS>\t\tChoose the filesystem to create on the encrypted data partition. One of xfs|ext2|ext3|ext4|fat|vfat. Defaults to xfs"
+    echo -e "-a|--automount <mount_point>\tWill register this device to be automounted at instance startup on <mount_point>"
+    echo -e "--ignore-nitro-check\t\tBy default, Sovereign Keys require to be on a Nitro-based instance. This flag allows to ignore this prerequisite"
+    echo -e "--delete-all-existing-data\tForce the preparation process and DELETE all existing volume data (be sure that's what you want)"
+    
+}
+
+cleanup () {
+    echo "Cleaning up..."
+    umount_secret_store
+    umount_ram_fs
+}
+
+# Default filesystem is xfs
+FILESYSTEM=xfs
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -h|--help)
+            usage
+            exit 0
+        ;;
+        -f|--filesystem)
+            FILESYSTEM="$2"
+            shift # past argument
+            shift # past value
+        ;;
+        -a|--automount)
+            MOUNT_POINT="$2"
+            shift # past argument
+            shift # past value
+        ;;
+        --ignore-nitro-check)
+            IGNORE_NITRO_CHECK=YES
+            shift # past argument
+        ;;
+        --delete-all-existing-data)
+            DELETE_ALL_EXISTING_DATA=YES
+            shift # past argument
+        ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+        ;;
+    esac
+done
+
+# Filesystem must be in the acceptable list
+if ! [[ $FILESYSTEM =~ ^(xfs|ext2|ext3|ext4|fat|vfat)$ ]] ; then
+    echo "Invalid value for filesystem"
+    usage
+    exit 2
+fi
+
+# Test nitro
+if ! is_nitro ; then
+    echo "This EC2 instance is not a Nitro-based instance. Sovereign Keys security depends on Nitro !!"
+    if [ -n "$IGNORE_NITRO_CHECK" ] ; then
+        echo "--ignore-nitro-check was set ; volume preparation will continue"
+    else
+        echo "You can use '--ignore-nitro-check' to ignore this warning. Exiting."
+        exit 3
+    fi
+fi
+
+# Should only have 1 positional argument
+if [ ${#POSITIONAL[@]} -ne 1 ] ; then
+    echo "Exactly one device is expected as argument"
+    usage
+    exit 2
+fi
+
+# Argument should be a volume /dev/something
+DEVICE="${POSITIONAL[0]}"
+if [ ! -b $DEVICE ] ; then
+    echo "$DEVICE is not a block device"
+    usage
+    exit 2
+fi
+
+# The volume should not have any partition
+if ls ${DEVICE}?* &>/dev/null && [ -z $DELETE_ALL_EXISTING_DATA ]; then
+    echo "$DEVICE already have partitions. Sovereign Keys can only prepare empty volumes."
+    echo "If you are SURE you want to ERASE ALL EXISTING DATA, you can use the '--delete-all-existing-data' flag"
+    exit 4
+fi
+
+# Prepare partitions of the new volume
+# Format GPT
+echo -en "Create a new GPT partition table on $DEVICE...\t\t\t\t"
+sgdisk -o $DEVICE >/dev/null
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+# Create the secret store partition
+echo -en "Create Secret Store partition on $DEVICE...\t\t\t\t"
+START=$(sgdisk -F $DEVICE)
+SIZE=2048 # 2048 sectors of 512 bytes => 1 MB
+END=$(($START + $SIZE - 1))
+sgdisk -n 128:$START:$END -c 128:"Secret Store" -A 128:set:125 $DEVICE >/dev/null
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+# Create the main partition
+echo -en "Create data partition on $DEVICE...\t\t\t\t\t"
+START=$(sgdisk -F $DEVICE)
+END=$(sgdisk -E $DEVICE)
+sgdisk -n 1:$START:$END -c 1:"Data" -A 128:set:63 $DEVICE >/dev/null
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+# Create the Secret Store FS
+SECRET_PARTITION_DEVICE=${DEVICE}128
+while [ ! -b $SECRET_PARTITION_DEVICE ] ; do sleep 1 ; done
+echo -en "Formating Secret Store partition...\t\t\t\t\t"
+mkfs.fat $SECRET_PARTITION_DEVICE >/dev/null
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+# Create the working space RAM disk
+mount_ram_fs
+if [ $? -ne 0 ] ; then echo "ERROR while creating the ram FS!!" ; exit 1 ; fi
+# Mount the Secret Store FS
+mount_secret_store $SECRET_PARTITION_DEVICE
+if [ $? -ne 0 ] ; then echo "ERROR while mounting the secret store!!" ; cleanup ; exit 1 ; fi
+
+# Generate a new secret
+# Extract the volume UUID
+VOLUME_UUID=$(get_device_guid $DEVICE)
+# Get a RSA public key
+PUB_KEY=$(get_rsa_pub_key)
+# Ask for a new secret
+echo -en "Asking Revolve Sovereign Key API for a new secret...\t\t\t"
+RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"rsa_wrapping_key\": \"$PUB_KEY\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/generate-secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+# Control signatures
+echo -en "Verifying the signature of the encrypted version of the secret...\t"
+if ! verify_signature $(echo $RES | jq -r .encrypted_secret) $(echo $RES | jq -r .encrypted_secret_signature) ; then
+    echo "CRITICAL: Encrypted secret has not be created by the Revolve API"
+    cleanup
+    exit 1
+else
+    echo "OK"
+fi
+echo -en "Verifying the signature of the wrapped version of the secret...\t\t"
+if ! verify_signature $(echo $RES | jq -r .wrapped_secret) $(echo $RES | jq -r .wrapped_secret_signature) ; then
+    echo "CRITICAL: Wrapped secret has not be created by the Revolve API"
+    cleanup
+    exit 1
+else
+    echo "OK"
+fi
+
+# Store the encrypted secret
+echo -en "Storing the encrypted version of the secret...\t\t\t\t"
+store_encrypted_secret $(echo $RES | jq -r .encrypted_secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+# Unwrap the wraped secret
+echo -en "Unwrapping the wrapped version of the secret...\t\t\t\t"
+unwrap_secret $(echo $RES | jq -r .wrapped_secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Prepare the crypto volume
+echo -en "Creating the encrypted partition with an $FILESYSTEM filesystem...\t\t"
+PARTITION_DEVICE=${DEVICE}1
+prepare_crypto_volume $FILESYSTEM $PARTITION_DEVICE
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Putting the device in the automount list and mounting it unless the no-automount flag was set
+if [ -n "$MOUNT_POINT" ] ; then
+    echo -en "Adding $DEVICE to the list of auto-mounted Sovereign Keys devices...\t"
+    add_automount $DEVICE $MOUNT_POINT
+    if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; fi
+    echo -en "Mounting the encrypted data volume...\t\t\t\t"
+    mount_crypto_volume $PARTITION_DEVICE $MOUNT_POINT
+    if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; fi
+fi
+
+# Unmounting everything
+cleanup
+
+echo "Success"
+exit 0
