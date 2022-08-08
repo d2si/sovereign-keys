@@ -96,7 +96,7 @@ The core assumption we make is that AWS **cannot** read the memory (RAM) of a li
 
 Given the previous assumption, we can consider two general threat models:
 1. AWS can **READ** EBS volumes and network packets. In that case, `Sovereign Keys` will protect your data.
-2. AWS can **READ and WRITE** EBS volumes and network packets. In that case, `Sovereign Keys` will not be able to completly negate all the various ways AWS could use to fool the system and retrieve your data **BUT** it should be possible to detect by correlating `Sovereign Keys` logs with your own logs. 
+2. AWS can **READ and WRITE** EBS volumes and network packets. In that case, `Sovereign Keys` will not be able to completly negate all the various ways AWS could use to fool the system and retrieve your data **BUT** it should be possible to detect by correlating `Sovereign Keys` logs with your own logs.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -445,7 +445,7 @@ We already have the `Private API Gateway URL` from step 8 of <a href="#initial-s
     ####################################
     BASE_URL=<Private API Gateway URL>
     # Retrieve EC pub key
-    echo Retrieve the SK API signing public key 
+    echo Retrieve the SK API signing public key
     RES=$(curl -H "Authorization: osef" -H "Content-Type: application/json" -X GET $BASE_URL/public-signing-key 2>/dev/null)
     cat > ~/api_public_key.pem << EOF
     -----BEGIN PUBLIC KEY-----

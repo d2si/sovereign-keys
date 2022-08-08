@@ -124,7 +124,7 @@ class CK_AES_CBC_ENCRYPT_DATA_PARAMS(Structure):
         ("length", c_ulong)
     ]
 
-# typedef struct CK_DERIVE_MASTER_KEY_PARAMS { 
+# typedef struct CK_DERIVE_MASTER_KEY_PARAMS {
 #     unsigned int PCA2_secret_handle;
 # 	unsigned int  seedLen;
 # 	unsigned char *seed;

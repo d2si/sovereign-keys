@@ -67,7 +67,7 @@ class PKCS11Lib:
     def __enter__(self):
         self._enter()
         return self
-    
+
     def _exit(self):
         with self.__init_lock:
             self.__init_count -= 1
@@ -113,7 +113,7 @@ class PKCS11Lib:
                 RV = self.__lib.C_GetSlotList(tokenPresent, None, byref(count))
             if RV != 0:
                 raise Exception(f'C_GetSlotList failed with error {Error(RV).name}')
-            
+
             logger.info(f"Slot Count={count.value}")
             # Slot list buffer
             slot_list = (c_ulong * count.value)()
@@ -179,7 +179,7 @@ class Token:
                 RV = self.__lib.C_GetMechanismInfo(c_ulong(slot_id), mecanism, byref(mechanism_info))
             if RV != 0:
                 raise Exception(f'C_GetMechanismInfo failed with error {Error(RV).name}')
-            
+
             # Return dict with values
             return {
                 'MinKeySize': mechanism_info.ulMinKeySize,
@@ -202,7 +202,7 @@ class Session:
         self.__pin = pin
         self.__session_opened = False
         self.__logged_in = False
-    
+
     def _open(self):
         logger.debug('Entering Session._open')
         # Initialize an empty cache
@@ -260,7 +260,7 @@ class Session:
                     self._login()
             self.__open_count += 1
         return self
-    
+
     def __exit__(self, type_, value, traceback):
         with self.__open_lock:
             self.__open_count -= 1
@@ -288,7 +288,7 @@ class Session:
             RV = self.__lib.C_GetSessionInfo(hSession, byref(session_info))
         if RV != 0:
             raise Exception(f'C_GetSessionInfo failed with error {Error(RV).name}')
-        
+
         # Return dict with values
         return {
             'slotID': session_info.slotID,
@@ -518,7 +518,7 @@ class Session:
             RV = self.__lib.C_WrapKey(hSession, pMechanism, c_ulong(wrap_key_handle), c_ulong(key_handle), buf, byref(buf_len))
         if RV != 0:
             raise Exception(f'C_WrapKey failed with error {Error(RV).name}')
-        
+
         # Result size
         wrap_size = buf_len.value
         return buf[:wrap_size]
@@ -547,7 +547,7 @@ class Session:
                 if wrap_key_iv is None:
                     wrap_key_iv = generate_random(12) # Generate a 96-bits random value
                 piv, iv_len = get_void_pointer_and_len(wrap_key_iv)
-            
+
             paad, aad_len = get_void_pointer_and_len(aad)
             mech_param = CK_GCM_PARAMS(
                 piv,
@@ -568,7 +568,7 @@ class Session:
             RV = self.__lib.C_WrapKey(hSession, pMechanism, c_ulong(wrap_key_handle), c_ulong(key_handle), buf, byref(buf_len))
         if RV != 0:
             raise Exception(f'C_WrapKey failed with error {Error(RV).name}')
-        
+
         # Result size
         wrap_size = buf_len.value
         # We return the IV and the result
@@ -806,7 +806,7 @@ class Session:
             RV = self.__lib.C_GetAttributeValue(hSession, c_ulong(object_handle), byref(template), len(template))
         if RV != 0:
             raise Exception(f'C_GetAttributeValue failed with error {Error(RV).name}')
-        
+
         # Convert the template back to a dict of key:val with the attributes name passed to the method
         template_index = {
             Attribute(attr_struct.type).name:attr_struct.get_value()
@@ -853,7 +853,7 @@ class SearchIter:
         RV = self.__lib.C_FindObjects(self.__handle, byref(h), 1, byref(count))
         if RV != 0:
             raise Exception(f'C_FindObjects failed with error {Error(RV).name}')
-        
+
         if count.value == 0:
             self._finalize()
             raise StopIteration()

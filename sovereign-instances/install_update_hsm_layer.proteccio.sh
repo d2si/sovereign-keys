@@ -1,7 +1,7 @@
 #!/bin/bash
 
 INST_DIR=/opt/tw_proteccio
-[ -d "${INST_DIR}" ] || mkdir -p "${INST_DIR}" 
+[ -d "${INST_DIR}" ] || mkdir -p "${INST_DIR}"
 INST_LIB_CLNT="${INST_DIR}/lib"
 
 # Getting the binaries

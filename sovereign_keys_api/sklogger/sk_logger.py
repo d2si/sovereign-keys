@@ -30,7 +30,7 @@ from utils import logger, bin_to_b64, HTTPError
 class S3Sender:
     def __init__(self, bucket):
         self._bucket = bucket
-    
+
     def send(self, sle):
         key = '%s/%09d.json' % (sle.vpc_id, sle.vpc_op_seq_num)
         self._bucket.put_object(
@@ -138,7 +138,7 @@ class SKLogEntry:
                 boto3.resource('s3',
                     aws_access_key_id = creds['AccessKeyId'],
                     aws_secret_access_key = creds['SecretAccessKey'],
-                    aws_session_token = creds['SessionToken'], 
+                    aws_session_token = creds['SessionToken'],
                     region_name=AWS_DEFAULT_REGION
                 ).Bucket(bucket_name)
             )
@@ -185,7 +185,7 @@ class SKLogEntry:
         # If an audit bucket is present, add it
         if 'AuditBucketName' in r['Item']:
             self.register_s3_destination(role_arn, r['Item']['AuditBucketName'])
-        
+
         # If an exception happened before that, this flag will not be set to True
         self._account_id_finder_ok = True
 

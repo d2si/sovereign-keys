@@ -256,7 +256,7 @@ Resources:
           Value: !Sub igw-${ProjectName}-${VpcName}
   IGWAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
-    Properties: 
+    Properties:
       InternetGatewayId: !Ref IGW
       VpcId: !Ref VPC
   PublicRoute:
@@ -519,7 +519,7 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       RouteTableIds:
-        !If 
+        !If
           - bWithNAT
           - - !Ref PublicRouteTable
             - !Ref PrivateRouteTable1
@@ -533,7 +533,7 @@ Resources:
     Type: AWS::EC2::VPCEndpoint
     Properties:
       RouteTableIds:
-        !If 
+        !If
           - bWithNAT
           - - !Ref PublicRouteTable
             - !Ref PrivateRouteTable1
@@ -580,6 +580,20 @@ Resources:
 ################################
 # Optional Interface endpoints #
 ################################
+  STSEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: bCreateOptionalInterfaceEndpoints
+    Properties:
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.sts
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !GetAtt InterfaceEndpointSecurityGroup.GroupId
+      VpcId: !Ref VPC
   SSMEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Condition: bCreateOptionalInterfaceEndpoints

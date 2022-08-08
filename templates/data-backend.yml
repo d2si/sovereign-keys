@@ -67,7 +67,7 @@ Resources:
       ObjectLockEnabled: true
       ObjectLockConfiguration:
         ObjectLockEnabled: Enabled
-        Rule: 
+        Rule:
           DefaultRetention:
             Mode: !Ref ObjectLockMode
             Years: 10

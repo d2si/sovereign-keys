@@ -20,7 +20,7 @@ usage () {
     echo -e "-a|--automount <mount_point>\tWill register this device to be automounted at instance startup on <mount_point>"
     echo -e "--ignore-nitro-check\t\tBy default, Sovereign Keys require to be on a Nitro-based instance. This flag allows to ignore this prerequisite"
     echo -e "--delete-all-existing-data\tForce the preparation process and DELETE all existing volume data (be sure that's what you want)"
-    
+
 }
 
 cleanup () {

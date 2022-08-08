@@ -72,7 +72,7 @@ def lambda_handler(event, context):
     # If the VPC is not in DynamoDB, the one calling us is not a customer or did not register properly
     if 'Item' not in r:
         raise Exception('Unauthorized')
-    
+
     # If there is an instance ID in the path, we need to verify it
     if caller_instance_id is not None:
         # We got the role to assume, let's instanciate an EC2 resource to check things

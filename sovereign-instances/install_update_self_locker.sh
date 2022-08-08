@@ -7,7 +7,7 @@
 # Cycle every 5min
 cat > /root/self-locker.sh << EOF
 #!/bin/bash
-if ! systemctl status sshd &>/dev/null ; then 
+if ! systemctl status sshd &>/dev/null ; then
   systemctl start sshd
 fi
 exit 0
@@ -17,7 +17,7 @@ while true ; do
     systemctl stop sshd
     systemctl disable sshd
   fi
-  if [ "\$SELF_LOCKER_ON" = "false" ] && ! systemctl status sshd &>/dev/null ; then 
+  if [ "\$SELF_LOCKER_ON" = "false" ] && ! systemctl status sshd &>/dev/null ; then
     systemctl enable sshd
     systemctl start sshd
   fi

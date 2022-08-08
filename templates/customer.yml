@@ -62,10 +62,10 @@ Resources:
                     - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${keyid}
                     - keyid: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
       Path: /
-  EC2Instance: 
+  EC2Instance:
     Type: AWS::EC2::Instance
     Condition: bToggleMainResourceCreation
-    Properties: 
+    Properties:
       InstanceType: t3.micro
       ImageId: !Ref Amzn2AMILatest
       IamInstanceProfile: !Ref CustomerInstanceProfile
@@ -130,7 +130,7 @@ Resources:
       ObjectLockEnabled: true
       ObjectLockConfiguration:
         ObjectLockEnabled: Enabled
-        Rule: 
+        Rule:
           DefaultRetention:
             Mode: GOVERNANCE
             Years: 10

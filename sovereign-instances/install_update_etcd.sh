@@ -59,7 +59,7 @@ ETCD_DATA_DIR=$RAMFS_DIR/etcd
 # ETCD config file path
 CONFIGFILE=/home/$ETCD_USER/etcd.conf
 
-# If config file does not exist, 
+# If config file does not exist,
 if [ ! -f $CONFIGFILE ] ; then
   # Create a RAM FS because in this case we don't want etcd to commit anything on-disk
   mkdir -p $ETCD_DATA_DIR
@@ -95,7 +95,7 @@ if [ ! -f $CONFIGFILE ] ; then
     iip=$(echo $l | cut -d":" -f2)
     instance_ips[$iid]=$iip
   done
-  
+
   candidate_peer_urls=$(for instance in $(echo $autoscaling_group_instances | jq '.AutoScalingGroups[0].Instances | sort_by(.LifecycleState, .InstanceId)[] | select(.LifecycleState  == "InService" or .LifecycleState  == "Terminating") | .InstanceId' | xargs) ; do if [[ ${instance_ips["$instance"]} ]] ; then echo https://${instance_ips["$instance"]}:2379 ; fi ; done)
   echo "[etcd_prep] candidate_peer_urls=$(echo $candidate_peer_urls | xargs)"
 
@@ -201,7 +201,7 @@ if [ ! -f $CONFIGFILE ] ; then
         else
           echo "[etcd_prep] removed bad peer"
           count=$(($count + 1))
-          # If the leader has been removed, now is a good time to wait and find 
+          # If the leader has been removed, now is a good time to wait and find
           if [[ $bp == $etcd_leader_id ]]; then
             echo "[etcd_prep] Leader removed. Waiting 5 seconds for re-election..."
             sleep 5
@@ -222,7 +222,7 @@ if [ ! -f $CONFIGFILE ] ; then
       done
     fi
 
-    if [[ $count -ge $max_peer_to_remove ]]; then 
+    if [[ $count -ge $max_peer_to_remove ]]; then
       echo "[etcd_prep] joining existing cluster"
     else
       echo "[etcd_prep] failed to remove any bad peer. Abording cluster join"

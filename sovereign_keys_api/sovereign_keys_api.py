@@ -121,7 +121,7 @@ def parse_path(verb, path):
         m = r.match(path)
         if m is not None:
             # Return a tuble of (path, pathParameter)
-            # With "path" being 
+            # With "path" being
             return func, m.groupdict()
     raise HTTPError(400, 'Unimplemented')
 
@@ -351,7 +351,7 @@ class SovereignAPI(BaseHTTPRequestHandler):
             logger.exception('Error!!')
             raise HTTPError(500, 'Internal Server Error')
         self.response_success(res)
-        
+
 
     # This is only for PUT /hsm-pin and only accessible from lo
     @http_exception_handler
