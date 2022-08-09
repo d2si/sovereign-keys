@@ -13,29 +13,18 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2
   WithNAT:
     Type: String
-    AllowedValues:
-      - 'false'
-      - 'true'
   WithBastion:
     Type: String
-    AllowedValues:
-      - 'false'
-      - 'true'
   NeedPrivateAWSServiceAccess:
     Type: String
-    AllowedValues:
-      - 'false'
-      - 'true'
   EIPAllocationIDs:
     Type: CommaDelimitedList
-    Description: The list of EIP to use for the NAT
     Default: ''
   ToggleMainResourceCreation:
     Type: String
-    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
-    AllowedValues:
-      - 'false'
-      - 'true'
+  BastionAuthorizedRange:
+    Type: String
+    Default: ''
 
 Conditions:
   bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
@@ -44,9 +33,7 @@ Conditions:
     - Condition: bToggleMainResourceCreation
     - Condition: bWithNAT
   bWithBastion: !Equals [ !Ref WithBastion, 'true' ]
-  bCreateBastionInstance: !And
-    - Condition: bToggleMainResourceCreation
-    - Condition: bWithBastion
+  bBastionAuthorizedRange: !Not [ !Equals [ !Ref BastionAuthorizedRange, '' ] ]
   bCreateEIPAssoc: !And
     - Condition: bCreateNATInstances
     - !Not [ !Equals [ !Join [ ",", !Ref EIPAllocationIDs ], "" ] ]
@@ -419,7 +406,12 @@ Resources:
     Properties:
       GroupName: !Sub scg-${ProjectName}-${VpcName}-bastion
       GroupDescription: Allow SSH connexions
-      SecurityGroupIngress: []
+      SecurityGroupIngress:
+        - Description: SSH
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !If [ bBastionAuthorizedRange, !Ref BastionAuthorizedRange, 0.0.0.0/0]
       SecurityGroupEgress:
         - CidrIp: 0.0.0.0/0
           IpProtocol: -1
@@ -452,13 +444,17 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
         - !Sub arn:${AWS::Partition}:iam::aws:policy/EC2InstanceConnect
       Policies:
-        - PolicyName: CloudHSM
+        - PolicyName: custom-policy
           PolicyDocument:
             Version: 2012-10-17
             Statement:
               - Sid: DescribeCloudHSMCluster
                 Effect: Allow
                 Action: cloudhsm:DescribeClusters
+                Resource: '*'
+              - Sid: DescribeASGs
+                Effect: Allow
+                Action: autoscaling:DescribeAutoScalingGroups
                 Resource: '*'
       Path: /
   BastionInstanceLaunchTemplate:
@@ -500,7 +496,7 @@ Resources:
               rm ./cloudhsm-mgmt-util-latest.el7.x86_64.rpm
   BastionInstance:
     Type: AWS::EC2::Instance
-    Condition: bCreateBastionInstance
+    Condition: bWithBastion
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref BastionInstanceLaunchTemplate

@@ -163,7 +163,7 @@ Finaly, you should be familiar with DevOps tools like `bash`, `git`, `curl` and 
 
 ## AWS Costs
 
-By itself, Sovereign keys does not cost much: around $30/month.
+By itself, Sovereign keys does not cost much: around $50/month.
 
 If you plan on using your own HSMs, you will probably add VPN costs on top of that, so depending on your configuration, maybe an additional $50-$150/month.
 
@@ -175,26 +175,42 @@ If you just want to make a test, just be sure to shutdown your HSM **nodes** (**
 
 Every CLI commands given in those installation steps work under the following conditions:
 - you are running them in an environment **configured for the target AWS account** you want to use, with the **target region as a default**;
-- you don't change the value of the ProjectName when you create the Sovereign Keys CloudFormation stack.
+- you don't change the value of the ProjectName when you create the Sovereign Keys CloudFormation stack;
+- you use a Linux bash or the Windows Bash sub-system.
+
+The default AWS region for the CLI can be configured like this:
+```sh
+aws configure set default.region <aws-region-code>
+```
 
 ### Initial Sovereign Keys provisionning
 
 These steps will create an initial deployement of `Sovereign Keys`. It will not be functional at first because 1/ it will lack an HSM cluster backend and 2/ the `Sovereign Keys` agent cannot be correctly configured before first deploying the `Sovereign Keys` API. The two sections following this one will address those 2 points.
 
-1. Clone the repo
+1. Clone the repo and go in it:
     ```sh
     git clone https://github.com/d2si/sovereign-keys.git
+    cd sovereign-keys
     ```
-2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-west-3 and eu-west-1 have been tested but it should work in most regions). You can do it using the AWS console or via CLI (we will assume you used `ProjectName=sovereign-keys` as parameter value in the rest of this document):
+2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-west-3 and eu-west-1 have been tested but it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
     ```sh
-    aws cloudformation create-stack --stack-name sk-stack --template-body file://pipeline-template.yml --parameters ParameterKey=GloballyUniqueCompanyIdentifier,ParameterValue=<YourIdentifier>
+    # Say you are at the root of the cloned repo
+    aws cloudformation create-stack --stack-name sk-stack --template-body file://pipeline-template.yml --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=GloballyUniqueCompanyIdentifier,ParameterValue=<YourIdentifier>
     ```
-3. Wait for the CloudFormation stack creation to finish.
-4. As part of this new CloudFormation stack, a CodeCommit repository have been created named `cc-sovereign-keys-repo` (unless you chose another `ProjectName` at step 2). If you are unsure, you can retrieve the exact name in the CloudFormation Console in the stacks Outputs or via CLI:
+3. Wait for the CloudFormation stack creation to finish (usually it takes ~5min).
     ```sh
-    aws cloudformation describe-stacks --stack-name sk-stack --output text --query "Stacks[0].Outputs"
+    aws cloudformation wait stack-create-complete --stack-name sk-stack
     ```
-5. Clone the (empty) CodeCommit repository. There are multiple ways to do that, via SSH or HTTPS, please refere to the [CodeCommit AWS documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/how-to-connect.html)
+4. As part of this new CloudFormation stack, a CodeCommit repository have been created named `cc-sovereign-keys-repo`. If you are unsure, you can retrieve the exact name in the CloudFormation Console in the stacks Outputs or via CLI:
+    ```sh
+    aws cloudformation describe-stacks --stack-name sk-stack --query "Stacks[0].Outputs[?OutputKey=='RepoName'||OutputKey=='RepoUrlSsh'||OutputKey=='RepoUrlHttp'].OutputValue"
+    ```
+5. Clone the (empty) CodeCommit repository. There are multiple ways to do that, via SSH or HTTPS, please refere to the [CodeCommit AWS documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/how-to-connect.html). Here is the command using the HTTPS URL and aws cli as a credential helper:
+    ```sh
+    cd ..
+    repo_url=$(aws cloudformation describe-stacks --stack-name sk-stack --output text --query "Stacks[0].Outputs[?OutputKey=='RepoUrlHttp'].OutputValue")
+    git clone $repo_url -c 'credential.UseHttpPath=true' -c 'credential.helper=!aws codecommit credential-helper'
+    ```
 6. Copy the entire content of the GitHub Sovereign Keys repository into your CodeCommit repository and commit/push it:
     ```sh
     # Say you are in the common parent folder of both repository
@@ -204,32 +220,164 @@ These steps will create an initial deployement of `Sovereign Keys`. It will not 
     git commit -m "Initial commit"
     git push
     ```
-7. Wait for CodePipeline to works its magic, it will create the entire Sovereign Keys architecture with a dummy "customer" VPC (it should take 15-20 minutes)
-
-Once the deployment is finished, you will endup with this demo architecture which is in fact very close from a production architecture (see <a href="#architecture">Architecture</a>):
-
-![Demo Architecture Overview](images/demo-architecture-overview.png)
+7. Wait for CodePipeline to works its magic, it will create the Sovereign Keys architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the Sovereign Keys architecture, see the see <a href="#architecture">Architecture</a> section.
+    ```sh
+    aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
+    aws cloudformation wait stack-create-complete --stack-name cfn-sovereign-keys-mainstack
+    ```
 
 8. Take note of the `Private API Gateway URL`, we will need it later. You can retrieve it in the API Gateway Console or via the CLI:
     ```sh
-    echo https://$(aws apigateway get-rest-apis --output text --query "items[?name==`api-sovereign-keys`].id").execute-api.$(aws configure get region).amazonaws.com/v1
+    aws cloudformation describe-stacks --stack-name cfn-sovereign-keys-mainstack --output text --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue"
     ```
+
+### Configure SSH on the Bastion instance
+
+THe next steps depends heavily on the usage of SSH on the Bastion instance. You SHOULD always use SSH to connect to the Bastion instead of Session Manager, especially when you are configuring secrets. Let's configure your Public SSH key on the bastion instance.
+
+If you don't have an SSH Keypair yet, please create one. For example:
+```sh
+ssh-keygen -b 2048 -t rsa
+```
+If you plan on using Putty, that's fine but you are on your own for the configurations (though it is by and large the same logic).
+
+1. Find the bastion EC2 instance that has been created in the `Sovereign Keys` API VPC. It is named `ec2-sovereign-keys-api-bastion`, you can find it in the EC2 Console or via the CLI:
+    ```sh
+    aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].InstanceId"
+    ```
+2. Connect to the bastion using Session Manager. Again, you can do it through the Console or the CLI if you have it pre-configured.
+3. You are logged as `ssm-user`, go `root`:
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    ####################################
+    sudo su
+    ```
+4. Configure your Public SSH key in the authorized_keys of ec2-user:
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    ####################################
+    echo <here goes your SSH pub key> >> /home/ec2-user/.ssh/authorized_keys
+    ```
+5. Logout of the Session Manager session
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    ####################################
+    exit
+    exit
+    ```
+6. (Optional) If you wish, you can scope down the IP addresses authorized to connect to the Bastion. You can do so by modifying the configuration file `main-configuration.json` at the root of the repository. Add the `BastionAuthorizedRange` with the CIDR block that suits you. The file should look like this:
+    ```json
+    {
+        "Parameters": {
+          "ToggleMainResourceCreation": "false",
+          "BastionAuthorizedRange": "1.2.3.4/31",
+          "InstanceType": "t3.micro",
+          "HsmType": "cloudhsm",
+          "ObjectLockMode": "GOVERNANCE"
+        }
+    }
+    ```
+    Once you made your modification, commit your changes:
+    ```sh
+    # Say you are at the root of the CodeCommit repository
+    git add .
+    git commit -m "Scoping down the IPs authorized to SSH into the bastion"
+    git push
+    ```
+7. Test you can SSH into the bastion:
+    ```sh
+    bastion_ip=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].PublicIpAddress")
+    ssh ec2-user@$bastion_ip
+    ```
+    Note: It probably wont work from the Windows Bash subsystem because of the way file permission are handled.
 
 ### (Alternative 1) Adding a CloudHSM cluster
 
 This steps are only necessary if you plan on using CloudHSM as a backend, either for tests or for production.
 
-The CloudHSM creation process is not repeated in this document as it is very detailled by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of the steps.
+The CloudHSM creation process is not entirely repeated in this document as it is very detailled by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of the steps.
 
-1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API. This step will yield the `Cluster Security Group ID`.
-2. Create a small EC2 AmazonLinux instance that you can access (Session Manager is probably the best choice) in one of the private subnets of the `Sovereign Keys` VPC, using the Security Group of the CloudHSM cluster as well as the "default" one and the IAM role of the bastion (to make Session Manager work). We will call it `tmp-instance`.
-3. Create an HSM in the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-hsm.html))
-4. If it is for production use, verify the HSM identity ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/verify-hsm-identity.html))
-5. Initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)). This step will yield the `customerCA.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/customerCA.crt`
-6. Install the CloudHSM client ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/install-and-configure-client-linux.html)) on the `tmp-instance`
-7. Activate the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/activate-cluster.html))
-8. Using the `tmp-instance`, create a new **CU** user for Sovereign Keys ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/cli-users.html#manage-users)) (**DO NOT** create another CO) and store the credentials somewhere safe /!\ Those credentials will ultimately allow to manipulate `Sovereign Keys` cryptographic keys, therefore there are critical and must remain secret /!\
-9. Reconfigure SSL ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certicate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional. This step will yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
+1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API, in the private subnets:
+    ```sh
+    private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query Subnets[].SubnetId | xargs)
+    aws cloudhsmv2 create-cluster --hsm-type hsm1.medium --subnet-ids $private_subnets
+    ```
+    You can verity if it is created or not by describing all clusters (assuming you have only one)
+    ```sh
+    aws cloudhsmv2 describe-clusters
+    ```
+    This step will yield the `Cluster Security Group ID` that we will need later (still assuming you have only one cluster) and that we will add on the Bastion:
+    ```sh
+    cluster_sg=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].SecurityGroup")
+    echo "CloudHSM Cluster Security Group ID: $cluster_sg"
+    bastion_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].InstanceId")
+    bastion_current_sgs=$(aws ec2 describe-instances --instance-id $bastion_id --output text --query "Reservations[0].Instances[0].SecurityGroups[*].GroupId" | xargs)
+    bastion_new_sgs="$bastion_current_sgs $cluster_sg"
+    aws ec2 modify-instance-attribute --instance-id $bastion_id --groups $bastion_new_sgs
+    ```
+2. When the cluster State becomes *UNINITIALIZED*, create an HSM in the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-hsm.html)):
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)a
+    ```
+3. At this point, you can retrieve the manufacter and the AWS root certificates. If it is for production use, you should verify the HSM identity ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/verify-hsm-identity.html))
+4. Initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)). This step will yield the `customerCA.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/customerCA.crt`
+5. Copy the `customerCA.crt` on the bastion:
+    ```sh
+    scp customerCA.crt ec2-user@$bastion_ip:customerCA.crt
+    ```
+6. SSH into the Bastion
+7. Configure the CloudHSM client:
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    ####################################
+    hsm_ip=$(aws cloudhsmv2 describe-clusters --output text --query Clusters[0].Hsms[0].EniIp)
+    sudo /opt/cloudhsm/bin/configure -a $hsm_ip
+    sudo mv customerCA.crt /opt/cloudhsm/etc
+    ```
+8. From the bastion, activate the cluster (doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/activate-cluster.html)). Enter the aws-cloudhsm prompt:
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    ####################################
+    /opt/cloudhsm/bin/cloudhsm_mgmt_util /opt/cloudhsm/etc/cloudhsm_mgmt_util.cfg
+    ```
+    Then activate the cluster by changing the PRECO password:
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    # In the aws-cloudhsm prompt       #
+    ####################################
+    listUsers
+    loginHSM PRECO admin password
+    changePswd PRECO admin <NewPassword>
+    logoutHSM
+    listUsers
+    ```
+9. Still in the aws-cloudhsm prompt, create a new **CU** user for Sovereign Keys(doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/cli-users.html#manage-users)):
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    # In the aws-cloudhsm prompt       #
+    ####################################
+    loginHSM CO admin <your CO password previously created>
+    createUser CU skuser <SKUserPassword>
+    logoutHSM
+    quit
+    ```
+    Store the credentials somewhere safe /!\ Those credentials will ultimately allow to manipulate `Sovereign Keys` cryptographic keys, therefore there are critical and must remain secret /!\
+10. Close the bastion SSH session
+    ```sh
+    ####################################
+    # Executed on the Bastion instance #
+    ####################################
+    exit
+    ```
+11. Reconfigure SSL ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certicate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional. This step will yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
 
 Let's make a short pitstop here. After going through the CloudHSM cluster creation, you should have the retrieved the following pieces of information:
 - The Security Group of the CloudHSM cluster yield at step 1: `Cluster Security Group ID`
@@ -242,9 +390,9 @@ If you miss any of the previous 5 pieces of information, please verify you follo
 
 Some of those informations are not secrets and will be added to your CodeCommit repository:
 
-10. Copy the `customerCA.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/customerCA.crt`
-11. Copy the `ssl-client.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/ssl-client.crt`
-12. Modify the configuration file `main-configuration.json` at the root of the repository, add the `Cluster Security Group ID` as an AdditionalSecurityGroup, ensure the HsmType is *cloudhsm*, modify SKVPCNeedNat to *true* and modify ToggleMainResourceCreation to *true*. The file should look like this:
+12. Copy the `customerCA.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/customerCA.crt`
+13. Copy the `ssl-client.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/ssl-client.crt`
+14. Modify the configuration file `main-configuration.json` at the root of the repository, add the `Cluster Security Group ID` as an AdditionalSecurityGroup, ensure the HsmType is *cloudhsm*, modify ToggleMainResourceCreation to *true*. The file should look like this:
     ```json
     {
         "Parameters": {
@@ -256,7 +404,7 @@ Some of those informations are not secrets and will be added to your CodeCommit 
         }
     }
     ```
-13. Commit and push your modifications:
+15. Commit and push your modifications:
     ```sh
     # Say you are at the root of the CodeCommit repository
     git add .
@@ -323,6 +471,18 @@ Some of those informations are not secrets and will be added to your CodeCommit 
         }
     }
     ```
+    Optionnaly, you can add the IP addresses of your Proteccio HSMs to scope down the `Sovereign Keys` instances proteccio Security Group. You MUST write the addresses in the /32 CIDR form and you can give up to 3 addresses (more will be processed the same as none). For example:
+    ```json
+    {
+        "Parameters": {
+            "ToggleMainResourceCreation": "true",
+            "InstanceType": "t3.micro",
+            "HsmType": "proteccio",
+            "HsmIpAddresses": "10.42.1.12/32,10.42.2.12/32",
+            "ObjectLockMode": "GOVERNANCE"
+        }
+    }
+    ```
 6. Commit and push your modifications:
     ```sh
     # Say you are at the root of the CodeCommit repository
@@ -333,43 +493,16 @@ Some of those informations are not secrets and will be added to your CodeCommit 
 
 ### Finalizing the API installation
 
-Now is the time to make the `Sovereign Keys` API functional by giving it the secrets it needs. The final commit of the previous step will have created the `Sovereign Keys` instances with the relevant configurations. We will now use SSH to go on any instance of the cluster in order to push the client certificate private key `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and the `PIN`. In order to be able to do that, you must first configure your Public SSH key on the bastion instance.
+Now is the time to make the `Sovereign Keys` API functional by giving it the secrets it needs. The final commit of the previous step will have created the `Sovereign Keys` instances with the relevant configurations. We will now use SSH to go on any instance of the cluster in order to push the client certificate private key `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and the `PIN`.
 
-If you don't have an SSH Keypair yet, please create one. For example:
-```sh
-ssh-keygen -b 2048 -t rsa
-```
-If you plan on using Putty, that's fine but you are on your own for the configurations (though it is by and large the same logic).
-
-1. Find the bastion EC2 instance that has been created in the `Sovereign Keys` API VPC. It is named `ec2-sovereign-keys-api-bastion`, you can find it in the EC2 Console or via the CLI:
-    ```sh
-    aws ec2 describe-instances --filters "Name=Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[*].Instances[*].{InstanceId,PublicIpAddress}"
-    ```
-    Take notes of the public IP we will need it shortly
-2. Connect to the bastion using Session Manager. Again, you can do it through the Console or the CLI if you have it pre-configured.
-3. You are logged as `ssm-user`, go `root`:
-    ```sh
-    ####################################
-    # Executed on the Bastion instance #
-    ####################################
-    sudo su
-    ```
-4. Configure your Public SSH key in the authorized_keys of ec2-user:
-    ```sh
-    ####################################
-    # Executed on the Bastion instance #
-    ####################################
-    echo <here goes your SSH pub key> >> /home/ec2-user/.ssh/authorized_keys
-    ```
-5. Logout of the Session Manager session
-6. Connect to the bastion using SSH:
+1. Connect to the bastion using SSH:
     ```sh
     ################################
     # Executed on your local shell #
     ################################
-    ssh ec2-user@<bastion-public-ip>
+    ssh ec2-user@$bastion_ip
     ```
-7. Assuming the `Sovereign Keys` instances had time to appear, connect to an healthy one using EC2 Instance Connect from the bastion:
+2. Assuming the `Sovereign Keys` instances had time to appear, connect to an healthy one using EC2 Instance Connect from the bastion:
     ```sh
     ####################################
     # Executed on the Bastion instance #
@@ -377,12 +510,13 @@ If you plan on using Putty, that's fine but you are on your own for the configur
     # Describe the Sovereign Keys auto scaling group
     sk_asg_instances=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-name asg-sovereign-keys-sovereign-instances)
     # Find an healthy instance that is in service
-    sk_instance_id=$(echo $sk_asg_instances | jq -r '.AutoScalingGroups[0].Instances | select(.LifecycleState  == "InService" and .HealthStatus == "Healthy") | [0].InstanceId')
+    sk_instance_id=$(echo $sk_asg_instances | jq -r '[.AutoScalingGroups[0].Instances[]|select(.LifecycleState=="InService" and .HealthStatus=="Healthy")][0].InstanceId')
     # Connect using EC2 Instance Connnect (SSH with a temporary key)
+    echo "Connecting to $sk_instance_id"
     mssh $sk_instance_id
     ```
     Note: because they are currently without secrets, the instance cannot interact with the HSMs, therefore they are considered unhealthy by the NLB and the ASG is periodically killing them and creating new ones. The previous commands ensure to connect to an instance still considered healthy, which should give you at least 2 minutes to perform the following steps. If you encounter errors, retry from this step.
-8. First we need to give the Private key to the API. In the following script, replace `<content of ssl-client.key>` by the actual content of `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and paste the result on the Sovereign Keys instance:
+3. First we need to give the Private key to the API. In the following script, replace `<content of ssl-client.key>` by the actual content of `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and paste the result on the Sovereign Keys instance:
     ```sh
     ##################################################
     # Executed on an healthy Sovereign Keys instance #
@@ -399,7 +533,7 @@ If you plan on using Putty, that's fine but you are on your own for the configur
     rm -f /tmp/ram-store/tmp.key
     ```
     `curl` should not return anything. If it returns something, it either means the API already has the key due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should probably go back to step 7.
-9. Then we give the password. In the following script, replace `<HSM PIN>` by the actual `PIN`:
+4. Then we give the password. In the following script, replace `<HSM PIN>` by the actual `PIN`:
     ```sh
     ##################################################
     # Executed on an healthy Sovereign Keys instance #
@@ -411,7 +545,7 @@ If you plan on using Putty, that's fine but you are on your own for the configur
     curl -H "Content-Type: application/json" -X PUT -d "{\"pin\":\"$HSM_PIN\"}" http://localhost:8080/hsm-pin
     ```
     `curl` should not return anything. If it returns something, it either means the API already has the `PIN` due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should probably go back to step 7.
-10. Disconnect from the `Sovereign Keys` instance
+5. Disconnect from the `Sovereign Keys` instance
     ```sh
     ##################################################
     # Executed on an healthy Sovereign Keys instance #
@@ -421,7 +555,7 @@ If you plan on using Putty, that's fine but you are on your own for the configur
 
 If you did not have any errors, congratulations: you have a working `Sovereign Keys` API cluster. The instances will exchange the secrets between them and keep them in their memory. From this point, you will not be able to connect to any of the instances anymore as a safety measure to prevent anyone to retrieve the secrets directly from the instances memory (after a minute or so you can verify this fact by trying step 7 again).
 
-Note: Steps 6 to 10 must be repeated each time a fresh `Sovereign Keys` API cluster is created, i.e. each time you change the `main-configuration.json` from ToggleMainResourceCreation=false to ToggleMainResourceCreation=true.
+Note: These steps must be repeated each time a fresh `Sovereign Keys` API cluster is created, i.e. each time you change the `main-configuration.json` from ToggleMainResourceCreation=false to ToggleMainResourceCreation=true.
 
 ### Configuring the customer agent
 
@@ -436,7 +570,7 @@ We already have the `Private API Gateway URL` from step 8 of <a href="#initial-s
     ################################
     # Executed on your local shell #
     ################################
-    ssh ec2-user@<bastion-public-ip>
+    ssh ec2-user@$bastion_ip
     ```
 2. Retrieve the `Sovereign Keys Public Signing Key` by asking the `Sovereign Keys` API. Replace `<Private API Gateway URL>` by the `Private API Gateway URL`:
     ```sh
@@ -486,13 +620,11 @@ We already have the `Private API Gateway URL` from step 8 of <a href="#initial-s
     ```
 8. At the end of the CodePipeline release process, the RPM package of the agent will be in the artifact S3 bucket. You can retrieve it directly from the console or use the CLI:
     ```sh
-    # TODO
-    aws s3 cp s3://$BUCKET/agent/linux/$FILENAME.rpm .
+    artifact_bucket=$(aws cloudformation list-exports --output text --query "Exports[?Name=='sovereign-keys:S3ArtifactBucketName'].Value")
+    aws s3 cp s3://$artifact_bucket/agent/linux/sovereign-keys-0.1.0-1.noarch.rpm .
     ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
-
 
 <!-- USAGE EXAMPLES -->
 ## Usage
@@ -503,10 +635,67 @@ _For more examples, please refer to the [Documentation](https://example.com)_
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
+## Destroy everything
+
+If you were doing a test, you probably want to remove everything and leave your AWS account clean.
+
+Rest assured, destroying is always easier and quicker than creating ;)
+
+### Just a pause before tomorrow
+
+1. Remove the HSM nodes of your cluster. Assuming there is only one cluster:
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    for hsm in $(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
+    ```
+2. Modify the configuration file `main-configuration.json` at the root of the repository and modify ToggleMainResourceCreation to *false*. The file should look like this:
+3. Commit and push your modifications:
+    ```sh
+    # Say you are at the root of the CodeCommit repository
+    git add .
+    git commit -m "Toggling off costly resources"
+    git push
+    ```
+4. The bastion will stay online, you can shut it down manually if you wish (it costs $3/month).
+
+### I want to detroy everything
+
+1. Remove the HSM nodes of your cluster. Assuming there is only one cluster:
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    for hsm in $(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
+    ```
+2. Remove the cluster itself:
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    aws cloudhsmv2 delete-cluster --cluster-id
+    ```
+3. Empty all the S3 bucket if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account.
+4. Delete the `Sovereign Keys` stack and the pipeline stack:
+    ```sh
+    aws cloudformation delete-stack --stack-name cfn-sovereign-keys-mainstack
+    aws cloudformation delete-stack --stack-name sk-stack
+    ```
 
 
 <!-- ARCHITECTURE -->
 # Architecture
+
+## Technical Overview
+
+The installation steps you have or will follow ultimatelly deploy the following technical stack:
+
+![Demo Architecture Overview](images/demo-architecture-overview.png)
+
+The HSM cluster is kind of floating in nothingness in this schema, because we don't want to suppose a particular HSM backend architecture but in order for `Sovereign Keys` to work, there MUST be HSMs somewhere. If you are testing the solution, chances are you provisionned some CloudHSM nodes in the Sovereign Keys VPC.
+
+Now this stack is the production stack, but the schema does not give you the full picture. The "dummy" customer VPC is there to test and validate the service but in a real-world example, there will be other VPCs, even in other AWS accounts. They MUST be in the same region though, because we are using the API Gateway endpoint to communicate with the API.
+
+A more "real" architecture would look like this:
+
+![Architecture Overview](images/architecture-overview.png)
+
+It is quite the same, but it shows the fact that multiple VPCs in multiple AWS accounts can use the `Sovereign Keys` API. Also, for a production environment you might not want NAT instances giving Internet access to the API instances but instead use VPC endpoints to only enable the communication with the necessary AWS services.
 
 ## Functional Design
 `Sovereign Keys` is a system that provide EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefor encrypted at the OS level and data written on the volume never leave the instance in clear-text. This is slightly different from what happen with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that perform the encryption/decryption process. The `Sovereign Keys` system can be devided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
@@ -518,7 +707,6 @@ This simple illustration summarize the previous paragraph:
 Note that AWS KMS is present on the schema only to underline how it difers from the `Sovereign Keys` encryption; but KMS does not play any role in the architecture: it can be used or not whithout any impact.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
 
 ## Cryptographic security
 The design choice for `Sovereign Keys` is that **all the cryptographic operations are performed by the HSM, in the HSM, and no customer secret of any kind are ever handled in cleartext by the `Sovereign Keys` API itself**. Random Numbers generation is also made by the HSM so we can have true randomness. Moreover, every cryptographic algorithm used by `Sovereign Keys` are recommanded by the NIST (National Institute of Standards and Technology) and the French ANSSI (Agence Nationale de Securité des Systèmes d'Information) and used within the boundaries of their approbation.

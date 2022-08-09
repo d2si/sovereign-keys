@@ -3,7 +3,6 @@ Description: Customer stack
 Parameters:
   GloballyUniqueCompanyIdentifier:
     Type: String
-    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
   ProjectName:
     Type: String
   CustomerName:
@@ -13,10 +12,6 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2
   ToggleMainResourceCreation:
     Type: String
-    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
-    AllowedValues:
-      - 'false'
-      - 'true'
 
 Conditions:
   bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
@@ -84,10 +79,22 @@ Resources:
             VolumeType: gp3
       UserData:
         Fn::Base64:
-          !Sub |
-            #!/bin/bash
-            yum update -y
-            yum install -y jq
+          !Sub
+            - |
+              #!/bin/bash
+              yum update -y
+              yum install -y jq
+              cat > /home/ec2-user/installskagent.sh <<EOF
+              ARTIFACT_BUCKET=${bucket}
+              aws s3 cp s3://$ARTIFACT_BUCKET/agent/linux/sovereign-keys-0.1.0-1.noarch.rpm sovereign-keys.rpm
+              sudo rpm -i --force sovereign-keys.rpm
+              rm -f sovereign-keys.rpm
+              EOF
+              chmod +x /home/ec2-user/installskagent.sh
+            - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+      Tags:
+        - Key: Name
+          Value: !Sub ec2-${ProjectName}-${CustomerName}-test-instance
 
   SKRoleArn:
     Type: AWS::IAM::Role
@@ -96,8 +103,7 @@ Resources:
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
-          -
-            Effect: Allow
+          - Effect: Allow
             Principal:
               AWS: !Ref AWS::AccountId
             Action: sts:AssumeRole
@@ -149,3 +155,6 @@ Outputs:
     Value: !GetAtt SKRoleArn.Arn
     Export:
       Name: !Sub ${ProjectName}:${CustomerName}:SKRoleArn
+  AuditBucket:
+    Description: The name of the customer audit bucket
+    Value: !Ref CustomerAuditBucket

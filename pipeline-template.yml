@@ -418,6 +418,7 @@ Resources:
           - !GetAtt CodeCommitRepo.Arn
         detail:
           event:
+            - referenceCreated
             - referenceUpdated
           referenceType:
             - branch
@@ -439,7 +440,7 @@ Resources:
   S3BucketEmptierLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: cfn-custom-s3-bucket-emptier
+      FunctionName: !Sub cfn-custom-${ProjectName}-s3-bucket-emptier
       Handler: index.lambda_handler
       Runtime: python3.9
       Architectures:
@@ -457,7 +458,7 @@ Resources:
                   if event['RequestType'] == 'Delete':
                       print(f'Emptying {bucket_name}...')
                       bucket = boto3.resource('s3').Bucket(bucket_name)
-                      bucket.object_versions.delete(BypassGovernanceRetention=True)
+                      bucket.object_versions.delete()
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
               except Exception as e:
                   import traceback

@@ -10,10 +10,6 @@ Parameters:
     Type: String
   ToggleMainResourceCreation:
     Type: String
-    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
-    AllowedValues:
-      - 'false'
-      - 'true'
 
 Conditions:
   bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]

@@ -12,10 +12,14 @@ Parameters:
   RoleArn:
     Type: String
     Default: ''
+  AuditBucketName:
+    Type: String
+    Default: ''
 
 Conditions:
   bWithEktName: !Not [ !Equals [ !Ref EktName, '' ] ]
   bWithRoleArn: !Not [ !Equals [ !Ref RoleArn, '' ] ]
+  bWithAuditBucketName: !Not [ !Equals [ !Ref AuditBucketName, '' ] ]
 
 Resources:
   CustomDynDBOnboard:
@@ -25,3 +29,4 @@ Resources:
        VpcId: !Ref VpcId
        EktName: !If [ bWithEktName, !Ref EktName, !Ref AWS::NoValue ]
        RemoteRoleARN: !If [ bWithRoleArn, !Ref RoleArn, !Ref AWS::NoValue ]
+       AuditBucketName: !If [ bWithAuditBucketName, !Ref AuditBucketName, !Ref AWS::NoValue ]

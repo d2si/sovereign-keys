@@ -57,7 +57,6 @@ RestartSec=5
 ExecStart=/bin/sh -c 'exec /usr/bin/python3 /home/$SK_USER/sovereign_keys_api/sovereign_keys_api.py &>> $LOGFILE'
 Environment=AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
 Environment=EKT_BUCKET=$EKT_BUCKET
-Environment=NLB_DNS=$NLB_DNS
 Environment=VPC_INFOS_TABLE=$VPC_INFOS_TABLE
 Environment=AUDIT_BUCKET=$AUDIT_BUCKET
 Environment=KEY_FILE=$KEY_FILE

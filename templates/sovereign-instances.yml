@@ -18,25 +18,28 @@ Parameters:
     Type: String
   HsmType:
     Type: String
-    Description: "The type of HSM we use as backend"
-    AllowedValues:
-      - cloudhsm
-      - proteccio
+  AdditionalSecurityGroup:
+    Type: String
+  HsmIpAddresses:
+    Type: CommaDelimitedList
+  HsmIpAddressesCount:
+    Type: Number
   SelfLockerOn:
     Type: String
-    Description: true or false, weither or not to enable to self-locker process that ensure the SK instances are not accessible when they might have secret in memory.
-    AllowedValues:
-      - 'false'
-      - 'true'
   ToggleMainResourceCreation:
     Type: String
-    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
-    AllowedValues:
-      - 'false'
-      - 'true'
 
 Conditions:
   bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
+  bAdditionalSecurityGroup: !Not [ !Equals [ !Ref AdditionalSecurityGroup, '' ] ]
+  bHsmIsProteccio: !Equals [ !Ref HsmType, proteccio ]
+  bHsmIp1IsPresent: !Or
+    - Condition: bHsmIp2IsPresent
+    - !Equals [ !Ref HsmIpAddressesCount, 1 ]
+  bHsmIp2IsPresent: !Or
+    - Condition: bHsmIp3IsPresent
+    - !Equals [ !Ref HsmIpAddressesCount, 2 ]
+  bHsmIp3IsPresent: !Equals [ !Ref HsmIpAddressesCount, 3 ]
 
 Resources:
 ######################
@@ -128,7 +131,6 @@ Resources:
             export EKT_BUCKET=${SovereignKeysBucketName}
             export AUDIT_BUCKET=${AuditBucketName}
             export SSM_CLOUDWATCH_CONFIG=${SovereignInstancesCloudWatchAgentConfig}
-            export NLB_DNS=${SovereignInstancesNLB.DNSName}
             export ASG_NAME=asg-${ProjectName}-sovereign-instances
             export VPC_INFOS_TABLE=${VPCInfosTableName}
             export HSM_TYPE=${HsmType}
@@ -139,15 +141,56 @@ Resources:
 #####################################
 # SovereignInstances EC2 components #
 #####################################
-  OutboundToHSMSecurityGroup:
+  OutboundToProteccioSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    Condition: bHsmIsProteccio
     Properties:
       GroupName: !Sub scg-${ProjectName}-sovereign-instances-hsm-access
       GroupDescription: Security group allowing the Sovereign Keys instances access to their HSM must be provisionned manually
       SecurityGroupEgress:
-        - Description: Rule that allow nothing to force the removal of the default outbound rule
-          CidrIp: 0.0.0.0/32
-          IpProtocol: -1
+        - Description: RPC
+          IpProtocol: udp
+          FromPort: 111
+          ToPort: 111
+          CidrIp: !If [ bHsmIp1IsPresent, !Select [ 0, !Ref HsmIpAddresses ], 0.0.0.0/0]
+        - Description: Proteccio TLS
+          IpProtocol: tcp
+          FromPort: 5552
+          ToPort: 5552
+          CidrIp: !If [ bHsmIp1IsPresent, !Select [ 0, !Ref HsmIpAddresses ], 0.0.0.0/0]
+        - !If
+          - bHsmIp2IsPresent
+          - Description: RPC
+            IpProtocol: udp
+            FromPort: 111
+            ToPort: 111
+            CidrIp: !Select [ 1, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+        - !If
+          - bHsmIp2IsPresent
+          - Description: Proteccio TLS
+            IpProtocol: tcp
+            FromPort: 5552
+            ToPort: 5552
+            CidrIp: !Select [ 1, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+        - !If
+          - bHsmIp3IsPresent
+          - Description: RPC
+            IpProtocol: udp
+            FromPort: 111
+            ToPort: 111
+            CidrIp: !Select [ 2, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+        - !If
+          - bHsmIp3IsPresent
+          - Description: Proteccio TLS
+            IpProtocol: tcp
+            FromPort: 5552
+            ToPort: 5552
+            CidrIp: !Select [ 2, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+
       Tags:
         - Key: Name
           Value: !Sub scg-${ProjectName}-sovereign-instances-hsm-access
@@ -174,7 +217,7 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           CidrIp: 0.0.0.0/0
-        - Description: SSH from bastion
+        - Description: Accept SSH only from bastion
           IpProtocol: tcp
           FromPort: 22
           ToPort: 22
@@ -309,7 +352,8 @@ Resources:
           - DeviceIndex: 0
             Groups:
               - !GetAtt SovereignInstancesSecurityGroup.GroupId
-              - !GetAtt OutboundToHSMSecurityGroup.GroupId
+              - !If [bHsmIsProteccio, !GetAtt OutboundToProteccioSecurityGroup.GroupId, !Ref AWS::NoValue]
+              - !If [bAdditionalSecurityGroup, !Ref AdditionalSecurityGroup, !Ref AWS::NoValue]
         BlockDeviceMappings:
           - DeviceName: /dev/xvda
             Ebs:

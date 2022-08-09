@@ -39,6 +39,10 @@ etcd_client = etcd.Client(host='127.0.0.1', port=2379, read_timeout=1)
 ####################
 # AWS Interactions #
 ####################
+from utils import DynamoDBInfoTableCache
+info_table_cache = DynamoDBInfoTableCache(os.environ['VPC_INFOS_TABLE'])
+SKLogEntry.set_info_table_cache(info_table_cache)
+
 import boto3
 from hashlib import md5
 AWS_DEFAULT_REGION = os.environ['AWS_DEFAULT_REGION']
@@ -46,7 +50,10 @@ EKT_BUCKET = os.environ['EKT_BUCKET']
 s3 = boto3.client('s3', region_name=AWS_DEFAULT_REGION)
 
 def s3_key_from_vpc(vpc_id):
-    return f'{vpc_id}.ekt'
+    item = info_table_cache.get_info_item(vpc_id)
+    if 'EktName' in item:
+        return f"{item['EktName']}.ekt"
+    return f"{vpc_id}.ekt"
 
 def get_ekt_for_vpc(vpc_id):
     key = s3_key_from_vpc(vpc_id)

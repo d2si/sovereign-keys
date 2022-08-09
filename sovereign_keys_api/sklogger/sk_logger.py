@@ -66,6 +66,7 @@ class S3Sender:
 class SKLogEntry:
     caller_types = ['INSTANCE', 'LAMBDA']
     _sign_function = None
+    _info_table_cache = None
 
     def __init__(self, caller_vpc):
         self._vpcid = caller_vpc
@@ -103,6 +104,10 @@ class SKLogEntry:
     @classmethod
     def set_sign_function(cls, f):
         cls._sign_function = f
+
+    @classmethod
+    def set_info_table_cache(cls, tc):
+        cls._info_table_cache = tc
 
     @property
     def vpc_id(self):
@@ -166,25 +171,15 @@ class SKLogEntry:
         self._event['call']['parameters'] = parameters
 
     def _find_account_id_from_vpc(self, caller_vpc):
-        vpc_infos_table = boto3.resource('dynamodb').Table(vpc_infos_table_name)
-        r = vpc_infos_table.get_item(
-            Key={
-                'VPCID': caller_vpc
-            },
-            ProjectionExpression='RemoteRoleARN,AuditBucketName',
-            ReturnConsumedCapacity='NONE'
-        )
-        # Should never happen
-        if 'Item' not in r:
-            raise Exception('Could not find VPC')
-        role_arn = r['Item']['RemoteRoleARN']
+        item = self.__class__._info_table_cache.get_info_item(caller_vpc)
+        role_arn = item['RemoteRoleARN']
         # RoleARN: arn:${Partition}:iam::${Account}:role/${RoleNameWithPath}
         account_id = role_arn.split(':')[4]
         self.set_caller_account_id(account_id)
 
         # If an audit bucket is present, add it
-        if 'AuditBucketName' in r['Item']:
-            self.register_s3_destination(role_arn, r['Item']['AuditBucketName'])
+        if 'AuditBucketName' in item:
+            self.register_s3_destination(role_arn, item['AuditBucketName'])
 
         # If an exception happened before that, this flag will not be set to True
         self._account_id_finder_ok = True

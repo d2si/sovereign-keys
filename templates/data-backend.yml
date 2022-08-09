@@ -4,15 +4,10 @@ Description: The API
 Parameters:
   GloballyUniqueCompanyIdentifier:
     Type: String
-    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
   ProjectName:
     Type: String
   ObjectLockMode:
     Type: String
-    Description: The Object Lock mode to use, either GOVERNANCE for testing purpose or COMPLIANCE for production workload. Lock duration is hard-coded to 10 years. Be careful with the COMPLIANCE mode, it is not possible to remove the objects AT ALL
-    AllowedValues:
-      - GOVERNANCE
-      - COMPLIANCE
 
 Resources:
 #####################################
