@@ -7,10 +7,6 @@
 # Cycle every 5min
 cat > /root/self-locker.sh << EOF
 #!/bin/bash
-if ! systemctl status sshd &>/dev/null ; then
-  systemctl start sshd
-fi
-exit 0
 while true ; do
   source /etc/profile.d/fixed-env.sh
   if [ "\$SELF_LOCKER_ON" = "true" ] && systemctl status sshd &>/dev/null && curl -f http://localhost:8080/healthcheck ; then
@@ -21,7 +17,12 @@ while true ; do
     systemctl enable sshd
     systemctl start sshd
   fi
-  sleep 300
+  # When SSH is on, will run through the loop quicker
+  if systemctl status sshd &>/dev/null ; then
+    sleep 10
+  else
+    sleep 300
+  fi
 done
 EOF
 

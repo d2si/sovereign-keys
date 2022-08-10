@@ -10,7 +10,7 @@ else
   rm /etc/profile.d/fixed-env.sh.new
 fi
 
-export RAMFS_DIR=/tmp/ram-store
+export RAMFS_DIR=/mnt/ram-store
 export KEY_FILE=$RAMFS_DIR/client.key
 
 # Function checking modifs and downloading scripts

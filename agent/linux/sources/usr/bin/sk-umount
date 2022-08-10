@@ -13,6 +13,11 @@ usage () {
     echo -e "-h|--help\t\tShow this help"
 }
 
+if ! is_user_root ; then
+    echo "MUST be run as root"
+    exit 5
+fi
+
 POSITIONAL=()
 while [[ $# -gt 0 ]]
 do
@@ -45,17 +50,17 @@ if [ ! -d $MOUNT_POINT ] ; then
 fi
 
 # Find the mapper
-echo -en "Finding mapper name for $MOUNT_POINT...\t\t"
+log "Finding mapper name for $MOUNT_POINT..."
 MAPPER_NAME=$(get_mapper_name_for_mountpoint $MOUNT_POINT)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 
 # Umount the mount point
-echo -en "Unmounting $MOUNT_POINT...\t\t\t"
+log "Unmounting $MOUNT_POINT..."
 umount $MOUNT_POINT
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 
 # Close the cryptoMapper
-echo -en "Closing crypto mapper $MAPPER_NAME...\t"
+log "Closing crypto mapper $MAPPER_NAME..."
 cryptsetup close $MAPPER_NAME
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 

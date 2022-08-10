@@ -29,6 +29,11 @@ cleanup () {
     umount_ram_fs
 }
 
+if ! is_user_root ; then
+    echo "MUST be run as root"
+    exit 5
+fi
+
 # Default filesystem is xfs
 FILESYSTEM=xfs
 POSITIONAL=()
@@ -107,12 +112,12 @@ fi
 
 # Prepare partitions of the new volume
 # Format GPT
-echo -en "Create a new GPT partition table on $DEVICE...\t\t\t\t"
+log "Create a new GPT partition table on $DEVICE..."
 sgdisk -o $DEVICE >/dev/null
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 
 # Create the secret store partition
-echo -en "Create Secret Store partition on $DEVICE...\t\t\t\t"
+log "Create Secret Store partition on $DEVICE..."
 START=$(sgdisk -F $DEVICE)
 SIZE=2048 # 2048 sectors of 512 bytes => 1 MB
 END=$(($START + $SIZE - 1))
@@ -120,7 +125,7 @@ sgdisk -n 128:$START:$END -c 128:"Secret Store" -A 128:set:125 $DEVICE >/dev/nul
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 
 # Create the main partition
-echo -en "Create data partition on $DEVICE...\t\t\t\t\t"
+log "Create data partition on $DEVICE..."
 START=$(sgdisk -F $DEVICE)
 END=$(sgdisk -E $DEVICE)
 sgdisk -n 1:$START:$END -c 1:"Data" -A 128:set:63 $DEVICE >/dev/null
@@ -129,7 +134,7 @@ if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 # Create the Secret Store FS
 SECRET_PARTITION_DEVICE=${DEVICE}128
 while [ ! -b $SECRET_PARTITION_DEVICE ] ; do sleep 1 ; done
-echo -en "Formating Secret Store partition...\t\t\t\t\t"
+log "Formating Secret Store partition..."
 mkfs.fat $SECRET_PARTITION_DEVICE >/dev/null
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
 
@@ -146,11 +151,11 @@ VOLUME_UUID=$(get_device_guid $DEVICE)
 # Get a RSA public key
 PUB_KEY=$(get_rsa_pub_key)
 # Ask for a new secret
-echo -en "Asking Revolve Sovereign Key API for a new secret...\t\t\t"
+log "Asking Revolve Sovereign Key API for a new secret..."
 RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"rsa_wrapping_key\": \"$PUB_KEY\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/generate-secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 # Control signatures
-echo -en "Verifying the signature of the encrypted version of the secret...\t"
+log "Verifying the signature of the encrypted version of the secret..."
 if ! verify_signature $(echo $RES | jq -r .encrypted_secret) $(echo $RES | jq -r .encrypted_secret_signature) ; then
     echo "CRITICAL: Encrypted secret has not be created by the Revolve API"
     cleanup
@@ -158,7 +163,7 @@ if ! verify_signature $(echo $RES | jq -r .encrypted_secret) $(echo $RES | jq -r
 else
     echo "OK"
 fi
-echo -en "Verifying the signature of the wrapped version of the secret...\t\t"
+log "Verifying the signature of the wrapped version of the secret..."
 if ! verify_signature $(echo $RES | jq -r .wrapped_secret) $(echo $RES | jq -r .wrapped_secret_signature) ; then
     echo "CRITICAL: Wrapped secret has not be created by the Revolve API"
     cleanup
@@ -168,26 +173,26 @@ else
 fi
 
 # Store the encrypted secret
-echo -en "Storing the encrypted version of the secret...\t\t\t\t"
+log "Storing the encrypted version of the secret..."
 store_encrypted_secret $(echo $RES | jq -r .encrypted_secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 # Unwrap the wraped secret
-echo -en "Unwrapping the wrapped version of the secret...\t\t\t\t"
+log "Unwrapping the wrapped version of the secret..."
 unwrap_secret $(echo $RES | jq -r .wrapped_secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 
 # Prepare the crypto volume
-echo -en "Creating the encrypted partition with an $FILESYSTEM filesystem...\t\t"
+log "Creating the encrypted partition with an $FILESYSTEM filesystem..."
 PARTITION_DEVICE=${DEVICE}1
 prepare_crypto_volume $FILESYSTEM $PARTITION_DEVICE
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 
 # Putting the device in the automount list and mounting it unless the no-automount flag was set
 if [ -n "$MOUNT_POINT" ] ; then
-    echo -en "Adding $DEVICE to the list of auto-mounted Sovereign Keys devices...\t"
+    log "Adding $DEVICE to the list of auto-mounted Sovereign Keys devices..."
     add_automount $DEVICE $MOUNT_POINT
     if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; fi
-    echo -en "Mounting the encrypted data volume...\t\t\t\t"
+    log "Mounting the encrypted data volume..."
     mount_crypto_volume $PARTITION_DEVICE $MOUNT_POINT
     if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; fi
 fi

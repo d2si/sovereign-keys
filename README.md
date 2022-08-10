@@ -50,8 +50,6 @@
   </p>
 </div>
 
-
-
 <!-- TABLE OF CONTENTS -->
 <details>
   <summary>Table of Contents</summary>
@@ -59,17 +57,31 @@
     <li>
       <a href="#about-the-project">About The Project</a>
       <ul>
-        <li><a href="#built-with">Built With</a></li>
+        <li><a href="#supported-cloud-provider-and-service">Supported Cloud provider and service</a></li>
+        <li><a href="#supported-operating-systems-and-plateform">Supported Operating Systems and plateform</a></li>
+        <li><a href="#supported-hsms">Supported HSMs</a></li>
       </ul>
     </li>
     <li>
       <a href="#getting-started">Getting Started</a>
       <ul>
         <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#aws-costs">AWS Costs</a></li>
         <li><a href="#installation">Installation</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="#destroy-and-recreate-resources">Destroy and recreate resources</a></li>
       </ul>
     </li>
-    <li><a href="#architecture">Architecture</a></li>
+    <li>
+      <a href="#architecture">Architecture</a>
+      <ul>
+        <li><a href="#technical-overview">Technical Overview</a></li>
+        <li><a href="#functional-design">Functional Design</a></li>
+        <li><a href="#cryptographic-security">Cryptographic security</a></li>
+        <li><a href="#key-hierarchy">Key hierarchy</a></li>
+        <li><a href="#customer-instance-interactions-with-sovereign-keys">Customer instance interactions with Sovereign Keys</a></li>
+      </ul>
+    </li>
     <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#contact">Contact</a></li>
@@ -77,12 +89,8 @@
   </ol>
 </details>
 
-
-
 <!-- ABOUT THE PROJECT -->
 # About The Project
-
-[![Product Name Screen Shot][product-screenshot]](https://example.com)
 
 Sovereignty has become a major concern for companies with the rise of Cloud computing. It has mainly revolved around the protection of data from the Cloud provider itself. `Sovereign Keys` aims to address this question.
 
@@ -377,7 +385,12 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     ####################################
     exit
     ```
-11. Reconfigure SSL ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certicate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional. This step will yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
+11. (Optional) Create a second HSM in the cluster, in another AZ (recommended for production use). Assuming you have only one cluster:
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)b
+    ```
+12. Reconfigure SSL ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certicate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional. This step will yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
 
 Let's make a short pitstop here. After going through the CloudHSM cluster creation, you should have the retrieved the following pieces of information:
 - The Security Group of the CloudHSM cluster yield at step 1: `Cluster Security Group ID`
@@ -390,9 +403,9 @@ If you miss any of the previous 5 pieces of information, please verify you follo
 
 Some of those informations are not secrets and will be added to your CodeCommit repository:
 
-12. Copy the `customerCA.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/customerCA.crt`
-13. Copy the `ssl-client.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/ssl-client.crt`
-14. Modify the configuration file `main-configuration.json` at the root of the repository, add the `Cluster Security Group ID` as an AdditionalSecurityGroup, ensure the HsmType is *cloudhsm*, modify ToggleMainResourceCreation to *true*. The file should look like this:
+13. Copy the `customerCA.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/customerCA.crt`
+14. Copy the `ssl-client.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/ssl-client.crt`
+15. Modify the configuration file `main-configuration.json` at the root of the repository, add the `Cluster Security Group ID` as an AdditionalSecurityGroup, ensure the HsmType is *cloudhsm*, modify ToggleMainResourceCreation to *true*. The file should look like this:
     ```json
     {
         "Parameters": {
@@ -404,7 +417,7 @@ Some of those informations are not secrets and will be added to your CodeCommit 
         }
     }
     ```
-15. Commit and push your modifications:
+16. Commit and push your modifications:
     ```sh
     # Say you are at the root of the CodeCommit repository
     git add .
@@ -524,13 +537,13 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     # Ensure the history will not record what we do
     export HISTFILE=/dev/null
     # Create a temporary key file in the instance RAM Store
-    cat > /tmp/ram-store/tmp.key << EOF
+    cat > /mnt/ram-store/tmp.key << EOF
     <content of ssl-client.key>
     EOF
     # PUT the content in the API through the lo interface
-    curl -X PUT -T /tmp/ram-store/tmp.key http://localhost:8080/client-key
+    curl -X PUT -T /mnt/ram-store/tmp.key http://localhost:8080/client-key
     # Remove the temporary key file
-    rm -f /tmp/ram-store/tmp.key
+    rm -f /mnt/ram-store/tmp.key
     ```
     `curl` should not return anything. If it returns something, it either means the API already has the key due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should probably go back to step 7.
 4. Then we give the password. In the following script, replace `<HSM PIN>` by the actual `PIN`:
@@ -553,7 +566,7 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     exit
     ```
 
-If you did not have any errors, congratulations: you have a working `Sovereign Keys` API cluster. The instances will exchange the secrets between them and keep them in their memory. From this point, you will not be able to connect to any of the instances anymore as a safety measure to prevent anyone to retrieve the secrets directly from the instances memory (after a minute or so you can verify this fact by trying step 7 again).
+If you did not have any errors, congratulations: you have a working `Sovereign Keys` API cluster. The instances will exchange the secrets between them and keep them in their memory. From this point, you will not be able to connect to any of the instances anymore as a safety measure to prevent anyone to retrieve the secrets directly from the instances memory (after 15 seconds or so you can verify this fact by trying step 2 again).
 
 Note: These steps must be repeated each time a fresh `Sovereign Keys` API cluster is created, i.e. each time you change the `main-configuration.json` from ToggleMainResourceCreation=false to ToggleMainResourceCreation=true.
 
@@ -618,26 +631,466 @@ We already have the `Private API Gateway URL` from step 8 of <a href="#initial-s
     git commit -m "Adding agent static configurations corresponding to the actual Sovereign Keys API"
     git push
     ```
-8. At the end of the CodePipeline release process, the RPM package of the agent will be in the artifact S3 bucket. You can retrieve it directly from the console or use the CLI:
+8. (Optional) At the end of the CodePipeline release process you can retrieve the RPM from S3, directly from the console or using the CLI:
     ```sh
     artifact_bucket=$(aws cloudformation list-exports --output text --query "Exports[?Name=='sovereign-keys:S3ArtifactBucketName'].Value")
-    aws s3 cp s3://$artifact_bucket/agent/linux/sovereign-keys-0.1.0-1.noarch.rpm .
+    aws s3 cp s3://$artifact_bucket/agent/linux/sovereign-keys-1.1.0-1.noarch.rpm .
     ```
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- USAGE EXAMPLES -->
+
 ## Usage
 
-Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
+Now that you have a working API, what can you do? Well, you can play with it using the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` that was created in the "dummy" customer VPC.
 
-_For more examples, please refer to the [Documentation](https://example.com)_
+Or you can also go to production with it.
+
+In any case, you can familiarize yourself with the basics of how it works on the `ec2-sovereign-keys-test-customer-test-instance`.
+
+### Connect to the test instance
+
+You can use Session Manager to connect to the `ec2-sovereign-keys-test-customer-test-instance` EC2 instance.
+
+If you prefer another method, use Session Manager initialy to configure your prefered method.
+
+### Validate the API is really working
+
+It can be usefull to convince yourself that the API is indeed behaving as expected. The script located at `utils/functional-testing.sh` in the repo does that.
+
+It is also available in the HOME directory of `ec2-user` on the `ec2-sovereign-keys-test-customer-test-instance`. You can launch it from there.
+
+1. Connected from Session Manager, you are `ssm-user`, not `ec2-user`, change that:
+    ```sh
+    #################################
+    # Executed on the Test instance #
+    #################################
+    sudo su ec2-user
+    cd
+    ```
+2. Launch the `functional-testing.sh` script:
+    ```sh
+    #############################################
+    # Executed on the Test instance as ec2-user #
+    #############################################
+    api_url=$(aws cloudformation describe-stacks --stack-name cfn-sovereign-keys-mainstack --output text --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue")
+    ./functional-testing.sh $api_url
+    ```
+3. If successful, the result resemble this:
+    ```sh
+    Secrets match!!!
+    TEST SUCCEED
+    -rw-rw-r-- 1 ec2-user ec2-user 213 Aug 10 15:44 ec_pub_key.pem
+    -rw-rw-r-- 1 ec2-user ec2-user  92 Aug 10 15:44 enc_secret2.bin
+    -rw-rw-r-- 1 ec2-user ec2-user 102 Aug 10 15:44 enc_secret2.sig
+    -rw-rw-r-- 1 ec2-user ec2-user  92 Aug 10 15:44 enc_secret.bin
+    -rw-rw-r-- 1 ec2-user ec2-user 103 Aug 10 15:44 enc_secret.sig
+    -rw-rw-r-- 1 ec2-user ec2-user  32 Aug 10 15:44 secret.bin
+    -rw-rw-r-- 1 ec2-user ec2-user  32 Aug 10 15:44 secret_retrieve.bin
+    -rw-rw-r-- 1 ec2-user ec2-user 512 Aug 10 15:44 wrap_secret1.bin
+    -rw-rw-r-- 1 ec2-user ec2-user 102 Aug 10 15:44 wrap_secret1.sig
+    -rw-rw-r-- 1 ec2-user ec2-user 512 Aug 10 15:44 wrap_secret2.bin
+    -rw-rw-r-- 1 ec2-user ec2-user 103 Aug 10 15:44 wrap_secret2.sig
+    TEST SUCCEED
+    ```
+    Note: Don't pay to much attention to the file sizes of the .sig files, they can vary slightly. As long as **TEST SUCCEED** is displayed, the test passed.
+
+### Install the Sovereign Keys agent
+
+For conveniance, the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` has an installation script that retrieve the rpm package and install it for you. It is located in the HOME directory of `ec2-user`:
+
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+./install-sk-agent.sh
+```
+It should not display anything but you can test the installation was successful by running an sk command:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+ec2-user$ sk-chk-pubkey
+Retrieve local version of the Revolve public signing key
+Retrieve remote version of the Revolve public signing key
+Keys are identical
+```
+
+### Manipulate a Sovereign Keys volume
+
+For conveniance, the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` has an additional small EBS volume on `/dev/sdf`:
+```sh
+ec2-user$ ls -l /dev/sdf
+lrwxrwxrwx 1 root root 7 Aug 10 11:12 /dev/sdf -> nvme1n1
+ec2-user$ lsblk
+NAME          MAJ:MIN RM SIZE RO TYPE MOUNTPOINT
+nvme0n1       259:0    0   8G  0 disk
+├─nvme0n1p1   259:1    0   8G  0 part /
+└─nvme0n1p128 259:2    0   1M  0 part
+nvme1n1       259:3    0   5G  0 disk
+```
+
+In order to prepare it, you use the `sk-prep-dev` command:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+# Create an SK volume formated using xfs
+sudo sk-prep-dev /dev/sdf
+```
+```sh
+ec2-user$ sudo sk-prep-dev /dev/sdf
+Create a new GPT partition table on /dev/sdf...                         OK
+Create Secret Store partition on /dev/sdf...                            OK
+Create data partition on /dev/sdf...                                    OK
+Formating Secret Store partition...                                     OK
+Asking Revolve Sovereign Key API for a new secret...                    OK
+Verifying the signature of the encrypted version of the secret...       OK
+Verifying the signature of the wrapped version of the secret...         OK
+Storing the encrypted version of the secret...                          OK
+Unwrapping the wrapped version of the secret...                         OK
+Creating the encrypted partition with an xfs filesystem...              OK
+Cleaning up...
+Success
+```
+
+You can then mount it using the `sk-mount` command:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+# Mount the SK volume on /mnt/data
+sudo sk-mount /dev/sdf /mnt/data
+```
+```sh
+$ sudo sk-mount /dev/sdf /mnt/data
+Asking Revolve Sovereign Key API to decrypt the secret...       OK
+Verifying the signature of the wrapped secret...                OK
+Unwrapping the wrapped version of the secret...                 OK
+Mounting the encrypted data volume...                           OK
+Cleaning up...
+Success
+```
+Note that if `/mnt/data` does not exist, it will be created.
+
+Of course, you can umount it using the `sk-umount` command:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+# Unmount the SK volume on /mnt/data
+sudo sk-umount /mnt/data
+```
+
+You can also prepare the device, mount the volume and register it for automount in a single call to `sk-prep-dev` command:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+sudo sk-prep-dev /dev/sdf -a /mnt/data
+```
+If `/mnt/data` does not exist, it will be created.
+
+The last one will probably tell you an error like **/dev/sdf already have partitions. Sovereign Keys can only prepare empty volumes**. This is because of our previous tests. We can overwrite the volume, **BECAUSE IT IS JUST A TEST AND THERE IS NO REAL DATA**:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+sudo sk-prep-dev /dev/sdf -a /mnt/data --delete-all-existing-data
+```
+Go on and create some super critical data in the SK volume:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+sudo chmod 777 /mnt/data/
+echo "This is a super critically important piece of information" > /mnt/data/secret.txt
+```
+
+Then reboot, and observe that the SK volume will be automatically mounted (provided you did execute `sk-prep-dev` with `-a`) and contains your secret.
+
+If you look at `lsblk`, you can see that the volume is in fact encrypted:
+```sh
+#############################################
+# Executed on the Test instance as ec2-user #
+#############################################
+ec2-user$ lsblk /dev/sdf
+NAME                 MAJ:MIN RM SIZE RO TYPE  MOUNTPOINT
+nvme1n1              259:0    0   5G  0 disk
+├─nvme1n1p1          259:2    0   5G  0 part
+│ └─JplNSC3yLBebsKGp 253:0    0   5G  0 crypt /mnt/data
+└─nvme1n1p128        259:5    0   1M  0 part
+```
+
+### Restoring a snapshot or an instance
+
+Say you have an instance with one or more SK volumes. And for some reason, the instance is gone. You had backup (either AMI of the entire instance or plain snapshots of the volumes) and now you want to retrieve your data. How does it work? Let see!
+
+We will do the exemple with an AMI, because that is less AWS heavy-lifting and it allow us to focus more on the `Sovereign Keys` part.
+
+1. Create an image of the EC2 instance `ec2-sovereign-keys-test-customer-test-instance`:
+    ```sh
+    test_instance_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-test-customer-test-instance" --output text --query "Reservations[0].Instances[0].InstanceId")
+    ami_id=$(aws ec2 create-image --instance-id $test_instance_id --name "${test_instance_id}-$(date -u +%s)" --output text --query "ImageId")
+    aws ec2 wait image-available --image-id $ami_id
+    ```
+    Note: It is a best practice to write the Instance ID in the snapshot description or in a tag, because you need this information in order to recover the volume (see further). Snapshot made for AMI will automatically contains the source instance ID.
+2. Create a new instance from this image:
+    ```sh
+    subnet_id=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-test-customer-public-2" --output text --query Subnets[].SubnetId | xargs)
+    aws ec2 run-instances --image-id $ami_id --subnet-id $subnet_id --iam-instance-profile 'Name=role-sovereign-keys-test-customer-instance' --instance-type t3.micro --associate-public-ip-address --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=ec2-sovereign-keys-test-customer-test-instance-restored}]'
+    ```
+3. Connect to the restored instance using Session Manager and go root:
+    ```sh
+    #############################################
+    # Executed on the Test instance as ssm-user #
+    #############################################
+    sudo su
+    cd
+    ```
+4. Try to mount the SK volume. As we got a perfect image of the initial instance, we can call the `sk-automount` that will conveniently loop through the configured SK volumes and mount them:
+    ```sh
+    #########################################
+    # Executed on the Test instance as root #
+    #########################################
+    root# sk-automount
+    Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
+    Asking Revolve Sovereign Key API to decrypt the secret...       NOK
+    Cleaning up...
+    ```
+    Damn! It does not work, the Sovereign Keys API did not decrypt the secret... Why? Because the secret we have is owned by the instance ID of `ec2-sovereign-keys-test-customer-test-instance`, and we don't have the same on `ec2-sovereign-keys-test-customer-test-instance-restored`. We need to take ownership of the secret first
+5. Take ownership of the secret using sk-takeown and giving the instance ID of `ec2-sovereign-keys-test-customer-test-instance`:
+    ```sh
+    #########################################
+    # Executed on the Test instance as root #
+    #########################################
+    sk-takeown -i <orig_instance_id> /dev/sdf
+    ```
+    For exemple, my original test instance had the ID *i-095af01fb0461e052*:
+    ```sh
+    sk-takeown -i i-095af01fb0461e052 /dev/sdf
+    Asking Revolve Sovereign Key API to convert the secret...               OK
+    Verifying the signature of the encrypted version of the secret...       OK
+    Storing the new encrypted version of the secret...                      OK
+    Cleaning up...
+    Success
+    ```
+    It tells me that the convertion was successful. Let's try the automount again...
+6. Mount the SK volume:
+    ```sh
+    #########################################
+    # Executed on the Test instance as root #
+    #########################################
+    root# sk-automount
+    Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
+    Asking Revolve Sovereign Key API to decrypt the secret...       OK
+    Verifying the signature of the wrapped secret...                OK
+    Unwrapping the wrapped version of the secret...                 OK
+    Mounting the encrypted data volume...                           OK
+    Cleaning up...
+    Success
+    ```
+    This time we have our data back!
+    ```sh
+    #############################################
+    # Executed on the Test instance as ec2-user #
+    #############################################
+    ec2-user$ ls -lh /mnt/data
+    total 4.0K
+    -rw-rw-r-- 1 ec2-user ec2-user 58 Aug 10 14:17 secret.txt
+    ec2-user$ cat /mnt/data/secret.txt
+    This is a super critically important piece of information
+    ```
+
+That's great. But wait a minute. Any instance can "takeown" the secret of anyother? Well, if the instances both belong to the same customer then **yes**, providing the wannabe-owner instance have access to the original instance volume. Three things are important to note on this mechanism:
+- First, it is necessary: there HAVE to be some way for an instance to claim anotherone's secret as its own, else loosing an instance would mean loosing the data;
+- Second, know that taking own of a secret generate a new "version" of the secret but **DOES NOT** invalidate the original version;
+- Third, all of that is traced and auditable.
+
+### Auditing what's happening
+
+**Every** call that reach the `Sovereign Keys` API instances is traced in tamper-proof, enumerated log files. Not every calls reach the API instances though. For example, a malicious call attempting to impersonate another instance would not even pass the Private API Gateway performing the authentication (see the <a href="#architecture">Architecture</a> section).
+But every calls reaching the API instances are logged.
+
+`Sovereign Keys` itself keep a copy of all the log files. Addtionnaly, each customer may have a specific audit bucket configured and, in that case, will receive the logs as well.
+
+For instance, the "dummy" customer created by default for test purposes have an audit-bucket configured. You can go in S3 and browse it, and you will find logs inside "VPC" folders:
+
+![Screenshot Audit bucket](images/screenshot-audit-bucket.png)
+
+You can see they are *json* files with a sequence number. You can also see that there is no gap in the sequence: **a gap would indicate a log file has been removed** (or that you completly detroyed your `Sovereign Keys` API cluster which mean loosing the counters).
+
+You can use [Amazon Athena](https://aws.amazon.com/athena/) or your own SIEM to use the logs. You can also, of course, download them manually from S3 but that is not practical.
+
+Let see some examples of logs that our little tests have generated.
+
+When I created my SK volume, there was first a `generate-secret`:
+```json
+{
+  "event_version": 1,
+  "vpc_op_seq_num": 15,
+  "vpc_id": "vpc-0b1e8a8e776a87423",
+  "op_start": "2022-08-10T14:15:47.501366Z",
+  "op_end": "2022-08-10T14:15:48.371042Z",
+  "caller": {
+    "type": "INSTANCE",
+    "id": "i-095af01fb0461e052",
+    "ip": "10.42.0.29",
+    "aws_account_id": "403xxxxxxxxx"
+  },
+  "call": {
+    "name": "generate-secret",
+    "parameters": {
+      "instance_id": "i-095af01fb0461e052",
+      "volume_uuid": "b59fad1d-46f7-447c-96c8-c2f9408a00ad",
+      "rsa_wrapping_key": "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2wFsvoPHrg6RqhXme6XjIreHhdEfDVOO4pJwxM7HPy0zYZId82P1EBUIz57GJLQi3KzJAozfOAFzS2Kjsogy4kCYwgGXaVYVDpa3G8Ebnonmv4db0u1zpSSSpd97WHwGYfXVxRBnnBlxQr0Q0KuzegwpcdH/klYpjurEiNA8o4VQGCEzCMKFvqIwIXrXIUkWvHAMfmUtnfZ+O0CsfSvaYKe1WJ0tCc1J1r++d3mdow5hfDvxomC/EHBe/2344BicH4k1ZGDWYNeqYWNaX7hKvNe8JIjsIhavuP5VGtsJWH7OIZ23viGTJaSNR3LWyVDvlpPQKE+p1tBVk5xaXJxEaQyV1/P0MJCC78o3nzRrQXxJ8h9ME0LVYa0wwkfS+NrN059jNMj7c0ar3jDUjk25261hHUi9UL8FODECvbS7ncPo6eYbAZ+jfJVf3I8x/E2OWmcWy76g7AJhOChzHfvhuIkMufuvmfsHL7ncQJ7C5CUiOlggML1wbv24gilIo4gWuXWkIiqfdzCO+amSJlk9WwVucamvoccNNUbtf5IsLikOCa2vwoCjYugWPxP15nIcdlCXq09eFR3+EQZ0uYe3zsOORWJX9uw9IKXZE/AnQg5fVn7ifPE0XVgqsXdP6bLWANwRsREs2Lh3areAsmvgxkgKdE6zIeeRlDamMPn5fNsCAwEAAQ=="
+    }
+  },
+  "result": "Succeed",
+  "failure_reason": null,
+  "signature": "MGYCMQDRtPd2kHMS8XkDFbqB5YI//W13JojR0dlRK+EPykK7x7EIMghtuFalgNAdciHdNloCMQCni3a0A3gm6IaLQLyjs83J73HzBBlmsDOb9szXUMREpP+T0m4R6CywGPvg2W++gHE="
+}
+```
+Then I rebooted the instance and it need to call `decrypt-secret` in order to unlock the volume:
+```json
+{
+  "event_version": 1,
+  "vpc_op_seq_num": 17,
+  "vpc_id": "vpc-0b1e8a8e776a87423",
+  "op_start": "2022-08-10T14:47:24.404906Z",
+  "op_end": "2022-08-10T14:47:25.155891Z",
+  "caller": {
+    "type": "INSTANCE",
+    "id": "i-095af01fb0461e052",
+    "ip": "10.42.0.29",
+    "aws_account_id": "403xxxxxxxxx"
+  },
+  "call": {
+    "name": "decrypt-secret",
+    "parameters": {
+      "instance_id": "i-095af01fb0461e052",
+      "volume_uuid": "b59fad1d-46f7-447c-96c8-c2f9408a00ad",
+      "rsa_wrapping_key": "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAyPXQV0WVZjWkY0XfihSH9ZnE/CjdUaFEPTNqtwOpzlxfcznCyC2FMSN/LwVP5xFBTowpQkyHSTCvivfMagUO4lhP0sLuh4iYtQsBAXxpwcg0cgeCEjtp+3gOGf77Z7ObAHZGAI7fGfHdXJ6uy9BuueJkImvIS/V+/T+cGdiZO3P2MMMzbDhCH+KMweOc6PVO0jQ3HmR+n3pV25MZCC/0TMSlMBo1fvgf7Awbc2+g+Xl+vhrUUbr8ZY7FXm5/S7N1CXUWbAJpdyOkzzqTID+5PUAVj+Kah9zs685nLO3rSCMYVbivTPZtW0crgdE10QhTrRyFhdCYb+qKobZ7O6TwQnROlNGrOl1vZPOuJEaNNYvSiQStQT3xEyy6ByThwWgkc0WK4jEhwtyE40L3ZTt68uMpRBxqDUlofFQ/VYnT75Ea0TdjQq45CQmhaaK7bMB3CVvdeMinAH9C9C4vTVM1SBhRgTFQMOtkKkLcRfxwCpZRGo7ohhFwn69g8/yE/yAcsgmNCE1uvzU+r5ejwGKoXvM2dfhzYTGSxQFw/7kmfH/7BI2ePIyYMuNaqGcgWtrZ4ZhK8pa08wtAChEDXkVprpoMqBni4t4xxpqDu86+3z44KN9lAOhM1Bsp8+ibvfvyryL+pxMjk3PfoLIAOgK0xUDRhiTavNuscSTxxpk3U6sCAwEAAQ=="
+    }
+  },
+  "result": "Succeed",
+  "failure_reason": null,
+  "signature": "MGQCMBivPih/EuVUYH5ohaYYiGCil1v+Hkr96gW5ExrXrH1kMLRVqI60gBAc5ECQOJ1VTAIwbSEJ9tyqM46Uc19xj9k6Ls3c7BPjFFORo7bxy/zpIUtQBD1/F5BvTluoU2D4Pdmx"
+}
+```
+Then I tested the restoration of my instance and initially the `decrypt-secret` failed:
+```json
+{
+  "event_version": 1,
+  "vpc_op_seq_num": 20,
+  "vpc_id": "vpc-0b1e8a8e776a87423",
+  "op_start": "2022-08-10T15:17:01.295374Z",
+  "op_end": "2022-08-10T15:17:01.973994Z",
+  "caller": {
+    "type": "INSTANCE",
+    "id": "i-0c4f345c91e5cd4a2",
+    "ip": "10.42.0.41",
+    "aws_account_id": "403xxxxxxxxx"
+  },
+  "call": {
+    "name": "decrypt-secret",
+    "parameters": {
+      "instance_id": "i-0c4f345c91e5cd4a2",
+      "volume_uuid": "b59fad1d-46f7-447c-96c8-c2f9408a00ad",
+      "rsa_wrapping_key": "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAqCtuVBCVQ5fd8NiitlaBW7wYGfblgK6HdAb+Ue9gBjfMEXW2FiEWFALzMUflk+tU2BEz4xTkmF7/Jiz2AJUoHXDWrVkrzY2smGJNN3LhdlNpFwY1s0APrR2WXB+r8g2dKuYP3c9QH2gtIc5JPd4dZ/BmKEuwG2kfmy0+AcwvtZL3nW6c58jonwtrfoOQBl1jJ5lwRtCR+Jvap0F4UGBW6/10fZ2gQMqt4cLUbTMzSOThh170EpfkDJoDPM5ehSHWx2coIFS6hhHygJSwdUaRYVHUOM3cVUhLUNwsgC4PMnK8k150ZJ2Z6FYTV5kZjH113Kxz4S1KGTiHyxSCGFCi6crrNCmKr0k9NzrTgrLadyEPohOfMgtgjPbXNrq6wX+9AIRQ1HI63EyJ/ZL5u6Jwi3FckSziWWGk2cjtlcztkLMRGiqw3PbQ3BqaCqPqL0qjrxXzgJYzoeZhoI2MsPgcaD6GVWyKx5mtFco0SOylwz1vud+QajP0gaRTafEkhlqYUf2YR0ADM8g4vspUg22rlMlgm9YSD3CVKy3RUkuYYpKH2zcI010DjLiZx2d5CbuKKkqIfHvQlmsY+oMxd85+r8puhG1xWN8Z/278USzXrJqC9YzElR3XQpTIbJF6gZwm8Z83YSByovSXIx4n0rA49xtFWGuAeS8awvxFqtdARiMCAwEAAQ=="
+    }
+  },
+  "result": "Failed",
+  "failure_reason": "Wrapped secret and/or context are incorrect",
+  "signature": "MGQCMBzAKj6UP3dChHzEOfUAY2Ukr2pDjJNVM2I2jQ1S8YzxaRth2W0QrhZcQQxmgC3PfQIwCexdeBXnnyyJcla/E9wpn17y+nvHQSn7AtzZPqqdZKOlzViGtvo/kY27aYsnRiHN"
+}
+```
+Then we called `convert-secret`:
+```json
+{
+  "event_version": 1,
+  "vpc_op_seq_num": 30,
+  "vpc_id": "vpc-0b1e8a8e776a87423",
+  "op_start": "2022-08-10T15:48:10.334840Z",
+  "op_end": "2022-08-10T15:48:10.960876Z",
+  "caller": {
+    "type": "INSTANCE",
+    "id": "i-0c4f345c91e5cd4a2",
+    "ip": "10.42.0.41",
+    "aws_account_id": "403xxxxxxxxx"
+  },
+  "call": {
+    "name": "convert-secret",
+    "parameters": {
+      "instance_id": "i-0c4f345c91e5cd4a2",
+      "volume_uuid": "b59fad1d-46f7-447c-96c8-c2f9408a00ad",
+      "source_instance_id": "i-095af01fb0461e052"
+    }
+  },
+  "result": "Succeed",
+  "failure_reason": null,
+  "signature": "MGUCMQDxxhyaDdefhPgpvkC+2NDXBEC2YSNMHtLPXRhmxRik+EQgYAnXvFexNFrYN1ov4UwCMBvSSoZqcMhPvRDL0PGDNpD9Mrtb+CBxnx5Kll+5ZgEhvcm6czlC1OTH3kjyL4ClXg=="
+}
+```
+Which led to a succesful `decrypt-secret`:
+```json
+{
+  "event_version": 1,
+  "vpc_op_seq_num": 31,
+  "vpc_id": "vpc-0b1e8a8e776a87423",
+  "op_start": "2022-08-10T15:50:03.078209Z",
+  "op_end": "2022-08-10T15:50:03.906680Z",
+  "caller": {
+    "type": "INSTANCE",
+    "id": "i-0c4f345c91e5cd4a2",
+    "ip": "10.42.0.41",
+    "aws_account_id": "403xxxxxxxxx"
+  },
+  "call": {
+    "name": "decrypt-secret",
+    "parameters": {
+      "instance_id": "i-0c4f345c91e5cd4a2",
+      "volume_uuid": "b59fad1d-46f7-447c-96c8-c2f9408a00ad",
+      "rsa_wrapping_key": "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5enumDr1wW7aQQvTXYgcwbtXVAB01nk0lWEh/XdRt+GrslxEglW7kI8psLCl7PvCNHuJxE8pMDabPCJHSSULI5HTDoenuQbJNghY9G1eroMU0SOyA5DXsjAJHXw8MjLERFd9LyfVdpdxziN2aE08sy+1rfgupvC/jS1QNoh45kaB8jkPDgv+V2SfrSPu/Cd9LKnN2xSkUAo+Y12MwQSR6UD5XEvcrhlvTEioZTEu5OBFU1RMVT869DPd4TtcR/gV4lrITs9cwg5hBDbd3lUGU8cnJmi6mDfUFgwKBRugaqEzfKlfHVhXITPIGAW8jTObfaVVapOENr1dZ+/UhgmkybK67f41izqb2UNED9QOHmsbUiu1Ljrpfe/dvU8yz5R30JD6/yvKFUSZVY3mHJtyAeAkay7MJiIQp/FpPen1LfiGY4wQHH/VIiuaFBDl3n/h4fIdWSnJWcmeaeOmLabBBz8Um5BpyNOEZHj/K8Mui39LKkEyBfEUYWiMSQO/KXGSF2+yJBxrihNJh9bd2LcUUpHnEXCfE2WZxo0MqDsj5PwKyVf0BTylziW/urpwzbGn4w9fsen2eGSGQZkqoDFX4sD7lOEB8BgRIsto7XpsJyIT6dEJeiLXV0n0yAnZauCDWGlY4K2d7PSZc2jdmWRwadw4uVseUTeFDTiEXKVgaQMCAwEAAQ=="
+    }
+  },
+  "result": "Succeed",
+  "failure_reason": null,
+  "signature": "MGQCMBJfrugJSc52fIhtI39xtw/un1ohIPS4+8WLgadBRhGoHXT3fmPDsc3ngJecry3QEgIwEZiGFBzaiE5D29idEY2vMB5hpPVwBln5PTp6K42xu8zEaJ2KaDI0M87enzbSy2Pz"
+}
+```
+Note: The *vpc_op_seq_num* fields do not always follow each other because I did other tests while writing this.
+
+You can see that each log entry is fairly detailed. And each one is **signed** by `Sovereign Keys` using a private key that **CANNOT** leave the backend HSMs, which gives you a very strong proof that the log you see is indeed an authentic, non-altered one created by `Sovereign Keys`.
+
+### Validating signatures
+
+If you want to validate the signatures (you SHOULD!!), you can find a Python script that can separate a json log into the serialized, signed content and the signature file at `utils/log_file_extraction.py`. You will also need to have a copy of the `Sovereign Keys Public Signing Key` (`api_public_key.pem`) that you retrieved at step 2 of the <a href="#configuring-the-customer-agent">Configuring the customer agent</a> section and `openssl`.
+
+Note: don't try to validate the signature of the examples, they are wrong because the aws_account_id field has been alterated
+
+Say you have *000000016.json* and you want to verify its signature.
+1. You use `log_file_extraction.py` to extract the serialized, signed content and the signature:
+    ```sh
+    python3 log_file_extraction.py 000000016.json
+    ```
+2. It gives you new files:
+    ```sh
+    user$ ls 000000016.json*
+    000000016.json  000000016.json.serialized  000000016.json.serialized.sig
+    ```
+3. Ensure that you have the `api_public_key.pem` file somewhere (let say, in the working directory) and verify the signature:
+    ```sh
+    openssl dgst -sha256 -verify api_public_key.pem -signature 000000016.json.serialized.sig 000000016.json.serialized
+    ```
+4. It will say `Verified OK` (or your file is corrupted). You can try to modify anything in the log file, and it will fail and the `openssl` result will be `Verification Failure`.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-## Destroy everything
+## Destroy and recreate resources
 
-If you were doing a test, you probably want to remove everything and leave your AWS account clean.
+If you were doing a test, you probably want to remove resources and leave your AWS account clean.
 
 Rest assured, destroying is always easier and quicker than creating ;)
 
@@ -648,15 +1101,39 @@ Rest assured, destroying is always easier and quicker than creating ;)
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     for hsm in $(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
     ```
-2. Modify the configuration file `main-configuration.json` at the root of the repository and modify ToggleMainResourceCreation to *false*. The file should look like this:
-3. Commit and push your modifications:
+2. Modify the configuration file `main-configuration.json` at the root of the repository and toggle ToggleMainResourceCreation to *false*.
+3. Commit and push your modification:
     ```sh
     # Say you are at the root of the CodeCommit repository
     git add .
     git commit -m "Toggling off costly resources"
     git push
     ```
-4. The bastion will stay online, you can shut it down manually if you wish (it costs $3/month).
+
+Note that the bastion will be kept running, you can shut it down manually if you wish (it costs $3/month).
+
+### It is tomorrow, how do I get things back?
+
+1. Create at least one HSM in the cluster. Assuming you have only one cluster:
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)a
+    ```
+2. (Optional) Create a second HSM in the cluster, in another AZ (recommended for production use). Assuming you have only one cluster:
+    ```sh
+    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)b
+    ```
+3. Wait for the HSM(s) to be "Active"
+4. Modify the configuration file `main-configuration.json` at the root of the repository and toggle ToggleMainResourceCreation to *true*.
+5. Commit and push your modification:
+    ```sh
+    # Say you are at the root of the CodeCommit repository
+    git add .
+    git commit -m "Toggling back on costly resources"
+    git push
+    ```
+6. Wait for the `Sovereign Keys` API cluster to be created, then redo the steps of <a href="#finalizing-the-api-installation">Finalizing the API installation</a> 
 
 ### I want to detroy everything
 
@@ -668,15 +1145,21 @@ Rest assured, destroying is always easier and quicker than creating ;)
 2. Remove the cluster itself:
     ```sh
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    aws cloudhsmv2 delete-cluster --cluster-id
+    aws cloudhsmv2 delete-cluster --cluster-id $cluster_id
     ```
-3. Empty all the S3 bucket if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account.
-4. Delete the `Sovereign Keys` stack and the pipeline stack:
+3. Empty all the S3 buckets if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account. The bucket to empty are named:
+    - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-audit-logs
+    - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-customer-audit-logs
+    - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-ekt **/!\ HUGE WARNING HERE /!\\**: emptying this bucket is the same thing as deleting every SK volumes and their snapshots. If you are in a production environment, **you DON'T WANT TO DO THAT**.
+4. Delete the CloudHSM cluster Security Group, as it will prevent the VPC removal
+5. Delete the `Sovereign Keys` architecture stack:
     ```sh
     aws cloudformation delete-stack --stack-name cfn-sovereign-keys-mainstack
+    ```
+6. Delete the `Sovereign Keys` pipeline stack:
+    ```sh
     aws cloudformation delete-stack --stack-name sk-stack
     ```
-
 
 <!-- ARCHITECTURE -->
 # Architecture
@@ -860,7 +1343,6 @@ Project Link: [https://github.com/d2si/sovereign-keys](https://github.com/d2si/s
 * Jérémie RODON - [@JeremieRodon](https://twitter.com/JeremieRodon) - jeremie@revolve.team
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
 
 
 <!-- MARKDOWN LINKS & IMAGES -->

@@ -88,6 +88,9 @@ phases:
         echo Sending all scripts to S3
         aws s3 sync sovereign-instances s3://$BUCKET/sovereign-instances
       - |
+        echo Uploading functional-testing.sh to S3
+        aws s3 cp utils/functional-testing.sh s3://$BUCKET/utils/functional-testing.sh
+      - |
         echo Packaging sovereign_keys_api to S3
         ARCHIVE_NAME=sovereign_keys_api.tgz
         tar cvzf $ARCHIVE_NAME sovereign_keys_api/

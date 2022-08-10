@@ -13,7 +13,6 @@ usage () {
     echo ""
     echo "Sovereign Keys signing public key verification"
     echo "Compares the local version of the signing public key with the version served by the API"
-    echo ""
     echo "OPTIONS:"
     echo -e "-h|--help\t\tShow this help"
 }

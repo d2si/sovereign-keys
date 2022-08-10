@@ -23,6 +23,11 @@ cleanup () {
     umount_ram_fs
 }
 
+if ! is_user_root ; then
+    echo "MUST be run as root"
+    exit 5
+fi
+
 POSITIONAL=()
 while [[ $# -gt 0 ]]
 do
@@ -95,12 +100,12 @@ VOLUME_UUID=$(get_device_guid $DEVICE)
 PUB_KEY=$(get_rsa_pub_key)
 # Encode the encrypted secret
 ENC_SECRET=$(get_encrypted_secret)
-echo -en "Asking Revolve Sovereign Key API to decrypt the secret...\t"
+log "Asking Revolve Sovereign Key API to decrypt the secret..."
 RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"encrypted_secret\": \"$ENC_SECRET\", \"rsa_wrapping_key\": \"$PUB_KEY\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/decrypt-secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 
 # Control signature
-echo -en "Verifying the signature of the wrapped secret...\t\t"
+log "Verifying the signature of the wrapped secret..."
 if ! verify_signature $(echo $RES | jq -r .wrapped_secret) $(echo $RES | jq -r .wrapped_secret_signature) ; then
     echo "CRITICAL: Wrapped secret has not be created by the Revolve API"
     cleanup
@@ -109,12 +114,12 @@ else
     echo "OK"
 fi
 # Unwrap the wraped secret
-echo -en "Unwrapping the wrapped version of the secret...\t\t\t"
+log "Unwrapping the wrapped version of the secret..."
 unwrap_secret $(echo $RES | jq -r .wrapped_secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 
 # Mount the volume
-echo -en "Mounting the encrypted data volume...\t\t\t\t"
+log "Mounting the encrypted data volume..."
 mount_crypto_volume $PARTITION_DEVICE $MOUNT_POINT
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 

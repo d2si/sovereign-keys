@@ -27,6 +27,11 @@ cleanup () {
     umount_ram_fs
 }
 
+if ! is_user_root ; then
+    echo "MUST be run as root"
+    exit 5
+fi
+
 POSITIONAL=()
 while [[ $# -gt 0 ]]
 do
@@ -106,12 +111,12 @@ if [ $? -ne 0 ] ; then echo "ERROR while mounting the secret store!!" ; cleanup 
 VOLUME_UUID=$(get_device_guid $DEVICE)
 # Encode the encrypted secret
 ENC_SECRET=$(get_encrypted_secret)
-echo -en "Asking Revolve Sovereign Key API to convert the secret...\t\t"
+log "Asking Revolve Sovereign Key API to convert the secret..."
 RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"encrypted_secret\": \"$ENC_SECRET\", \"source_instance_id\": \"$SOURCE_INSTANCE_ID\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/convert-secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 
 # Control signatures
-echo -en "Verifying the signature of the encrypted version of the secret...\t"
+log "Verifying the signature of the encrypted version of the secret..."
 if ! verify_signature $(echo $RES | jq -r .encrypted_secret) $(echo $RES | jq -r .encrypted_secret_signature) ; then
     echo "CRITICAL: Encrypted secret has not be created by the Revolve API"
     cleanup
@@ -120,8 +125,13 @@ else
     echo "OK"
 fi
 
+# Archive the old encrypted secret
+log "Archiving old version of the secret..."
+archive_current_encrypted_secret
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
 # Store the encrypted secret
-echo -en "Storing the new encrypted version of the secret...\t\t\t"
+log "Storing the new encrypted version of the secret..."
 store_encrypted_secret $(echo $RES | jq -r .encrypted_secret)
 if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
 

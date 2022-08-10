@@ -47,8 +47,15 @@ Resources:
                 Action: s3:GetObject
                 Resource:
                   - !Sub
+                      - arn:${AWS::Partition}:s3:::${bucket}/utils/functional-testing.sh
+                      - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+                  - !Sub
                       - arn:${AWS::Partition}:s3:::${bucket}/agent/*
                       - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+              - Sid: DescribeCFStacks
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: '*'
               - Sid: KMS
                 Effect: Allow
                 Action: kms:Decrypt
@@ -77,6 +84,10 @@ Resources:
             Encrypted: true
             KmsKeyId: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
             VolumeType: gp3
+        - DeviceName: /dev/sdf
+          Ebs:
+            VolumeSize: 5
+            VolumeType: gp3
       UserData:
         Fn::Base64:
           !Sub
@@ -84,13 +95,17 @@ Resources:
               #!/bin/bash
               yum update -y
               yum install -y jq
-              cat > /home/ec2-user/installskagent.sh <<EOF
-              ARTIFACT_BUCKET=${bucket}
-              aws s3 cp s3://$ARTIFACT_BUCKET/agent/linux/sovereign-keys-0.1.0-1.noarch.rpm sovereign-keys.rpm
+              cat > /home/ec2-user/install-sk-agent.sh <<EOF
+              #!/bin/bash
+              aws s3 cp s3://${bucket}/agent/linux/sovereign-keys-1.1.0-1.noarch.rpm sovereign-keys.rpm &>/dev/null
               sudo rpm -i --force sovereign-keys.rpm
               rm -f sovereign-keys.rpm
               EOF
-              chmod +x /home/ec2-user/installskagent.sh
+              chmod +x /home/ec2-user/install-sk-agent.sh
+              aws s3 cp s3://${bucket}/utils/functional-testing.sh /home/ec2-user/functional-testing.sh
+              chmod +x /home/ec2-user/functional-testing.sh
+              chown -R ec2-user:ec2-user /home/ec2-user
+              sudo -u ec2-user aws configure set default.region ${AWS::Region}
             - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
       Tags:
         - Key: Name

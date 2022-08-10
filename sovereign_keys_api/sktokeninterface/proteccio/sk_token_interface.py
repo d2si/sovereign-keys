@@ -253,7 +253,7 @@ def reencrypt_secret(aes_wrapped_secret: bytes,
         secret_h = proteccio_derive_kek_and_unwrap(session,
             wrapping_key_handle=cmk_h,
             cipher_text=aes_wrapped_secret,
-            aad=secret_aad,
+            aad=old_secret_aad,
             target_key_type=KeyType.GENERIC_SECRET,
             extractable=True
         )

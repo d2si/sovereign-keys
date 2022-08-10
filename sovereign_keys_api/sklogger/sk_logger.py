@@ -231,11 +231,13 @@ class SKLogEntry:
             "ip": "10.42.12.13",
             "aws_account_id": "123456789012"
         },
-        "call": "decrypt-secret",
-        "call_parameters":{
-            "instance_id": "i-1234567890abcdef",
-            "volume_uuid": "39331fb1-f6b0-4a1f-b873-3490d3f1e491",
-            "rsa_wrapping_key": "17AB8342"
+        "call": {
+            "name": "decrypt-secret",
+            "parameters":{
+                "instance_id": "i-1234567890abcdef",
+                "volume_uuid": "39331fb1-f6b0-4a1f-b873-3490d3f1e491",
+                "rsa_wrapping_key": "17AB8342"
+            }
         },
         "result": "Failed",
         "failure_reason": "",
