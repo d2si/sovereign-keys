@@ -484,8 +484,7 @@ Some of those informations are not secrets and will be added to your CodeCommit 
 
 1. Upload the binary and libraries in the S3 Artifact bucket of the CodePipeline:
     ```sh
-    # TODO
-    ARTIFACT_BUCKET=TODO
+    ARTIFACT_BUCKET=$(aws cloudformation list-exports --output text --query "Exports[?Name=='sovereign-keys:S3ArtifactBucketName'].Value")
     aws s3 cp nethsmstatus s3://$ARTIFACT_BUCKET/sovereign-instances/proteccio/nethsmstatus
     aws s3 cp libnethsm.so s3://$ARTIFACT_BUCKET/sovereign-instances/proteccio/libnethsm.so
     aws s3 cp libnethsmanalyze.so s3://$ARTIFACT_BUCKET/sovereign-instances/proteccio/libnethsmanalyze.so
@@ -513,7 +512,7 @@ Some of those informations are not secrets and will be added to your CodeCommit 
     ClntCert=client.crt
     ```
     Note that you can choose different names for the certificates, but `client.key` MUST be named `client.key`;
-5. Modify the configuration file `main-configuration.json` at the root of the repository, ensure the HsmType is *proteccio*, modify SKVPCNeedNat to *true* and modify ToggleMainResourceCreation to *true*. The file should look like this:
+5. Modify the configuration file `main-configuration.json` at the root of the repository, ensure the HsmType is *proteccio* and modify ToggleMainResourceCreation to *true*. The file should look like this:
     ```json
     {
         "Parameters": {

@@ -6,6 +6,7 @@ Parameters:
     Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
   ProjectName:
     Type: String
+    Description: Name of the project to insert in most the resource names
   SKVPCNeedNat:
     Type: String
     Description: true or false, weither or not to add NAT instances to the SK API VPC. If no NAT instance, lots of expensive VPC endpoints will be created to allow SK instances to perform their job.
@@ -33,7 +34,7 @@ Parameters:
       - proteccio
   InstanceType:
     Type: String
-    Description: The type of instance we use for SK
+    Description: The type of instance we use for SK API instances
   AdditionalSecurityGroup:
     Type: String
     Description: A VPC SecurityGroup ID to add on the Sovereign Keys instances, usually used for CloudHSM
