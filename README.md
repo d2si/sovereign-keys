@@ -320,7 +320,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
 
 1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API, in the private subnets:
     ```sh
-    private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query Subnets[].SubnetId | xargs)
+    private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query "Subnets[].SubnetId" | xargs)
     aws cloudhsmv2 create-cluster --hsm-type hsm1.medium --subnet-ids $private_subnets
     ```
     You can verify if it is created or not by describing all clusters (assuming you have only one)
@@ -353,7 +353,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     ####################################
     # Executed on the Bastion instance #
     ####################################
-    hsm_ip=$(aws cloudhsmv2 describe-clusters --output text --query Clusters[0].Hsms[0].EniIp)
+    hsm_ip=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[0].EniIp")
     sudo /opt/cloudhsm/bin/configure -a $hsm_ip
     sudo mv customerCA.crt /opt/cloudhsm/etc
     ```
@@ -906,7 +906,7 @@ We will do the example with an AMI, because that is less AWS heavy-lifting (swit
     Note: It is a best practice to write the Instance ID in the snapshots description or in a tag, because you need this information in order to recover the volume (see further). Snapshots made for AMIs will automatically contain the source instance ID.
 2. Create a new instance from this image:
     ```sh
-    subnet_id=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-test-customer-public-2" --output text --query Subnets[].SubnetId | xargs)
+    subnet_id=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-test-customer-public-2" --output text --query "Subnets[].SubnetId" | xargs)
     aws ec2 run-instances --image-id $ami_id --subnet-id $subnet_id --iam-instance-profile 'Name=role-sovereign-keys-test-customer-instance' --instance-type t3.micro --associate-public-ip-address --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=ec2-sovereign-keys-test-customer-test-instance-restored}]'
     ```
 3. Connect to the restored instance called `ec2-sovereign-keys-test-customer-test-instance-restored` using Session Manager and go root:
