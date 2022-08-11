@@ -139,7 +139,7 @@ Additional HSMs can be supported but will require additional code. `Sovereign Ke
 <!-- GETTING STARTED -->
 # Getting Started
 
-Here are the instructions allowing you to setup and use `Sovereign Keys` in your own AWS account or AWS Organization.
+Here are the instructions allowing you to set up and use `Sovereign Keys` in your own AWS account or AWS Organization.
 
 ## Prerequisites
 
@@ -205,7 +205,7 @@ These steps will create an initial deployment of `Sovereign Keys`. It will not b
     git clone https://github.com/d2si/sovereign-keys.git
     cd sovereign-keys
     ```
-2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-west-3 and eu-west-1 have been tested but it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
+2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-west-3 and eu-west-1 have been tested, but it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
     ```sh
     # Say you are at the root of the cloned repo
     aws cloudformation create-stack --stack-name sk-stack --template-body file://pipeline-template.yml --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=GloballyUniqueCompanyIdentifier,ParameterValue=<YourIdentifier>
@@ -423,7 +423,7 @@ Let's make a short pitstop here. After going through the CloudHSM cluster creati
 
 If you miss any of the previous 5 pieces of information, please verify you followed every previous installation step correctly.
 
-Some of those informations are not secrets and will be added to your CodeCommit repository:
+Some of this information is not secret and will be added to your CodeCommit repository:
 
 13. Copy the `customerCA.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/customerCA.crt`
 14. Copy the `ssl-client.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/ssl-client.crt`
@@ -480,7 +480,7 @@ In order to be able to continue the installation using Proteccio netHSMs, you mu
 - The corresponding secret key: `client.key` (/!\ SECRET /!\\);
 - The PIN of the Crypto User (CU) `PIN` (/!\ SECRET /!\\).
 
-Some of those informations are not secrets and will be added to your CodeCommit repository:
+Some of this information is not secret and will be added to your CodeCommit repository:
 
 1. Upload the binary and libraries in the S3 Artifact bucket of the CodePipeline:
     ```sh
@@ -560,7 +560,7 @@ The final commit of the previous step will have created the `Sovereign Keys` ins
     ################################
     ssh ec2-user@$bastion_ip
     ```
-2. Assuming the `Sovereign Keys` instances had time to appear, connect to an healthy one using EC2 Instance Connect from the bastion:
+2. Assuming the `Sovereign Keys` instances had time to appear, connect to a healthy one using EC2 Instance Connect from the bastion:
     ```sh
     ####################################
     # Executed on the Bastion instance #
@@ -766,7 +766,7 @@ For convenience, the EC2 instance `ec2-sovereign-keys-test-customer-test-instanc
 #############################################
 ./install-sk-agent.sh
 ```
-It should not display anything but you can test the installation was successful by running an sk command:
+It should not display anything, but you can test the installation was successful by running a sk command:
 ```sh
 #############################################
 # Executed on the Test instance as ec2-user #
@@ -1033,7 +1033,7 @@ When I created my SK volume, there was first a `generate-secret`:
   "signature": "MGYCMQDRtPd2kHMS8XkDFbqB5YI//W13JojR0dlRK+EPykK7x7EIMghtuFalgNAdciHdNloCMQCni3a0A3gm6IaLQLyjs83J73HzBBlmsDOb9szXUMREpP+T0m4R6CywGPvg2W++gHE="
 }
 ```
-Then I rebooted the instance and it need to call `decrypt-secret` in order to unlock the volume:
+Then I rebooted the instance and it needs to call `decrypt-secret` in order to unlock the volume:
 ```json
 {
   "event_version": 1,
@@ -1315,7 +1315,7 @@ The key hierarchy has 3 levels:
 - A `Customer Master Key`, which is the top level key for a specific customer;
 - An `Instance Secret`, which is specific to a specific instance (and a specific volume).
 
-The `Domain Key` protects the `Customer Master Keys` which in turn protects the `Instance Secrets`. This is a fairly common key hierarchy which we can be represent on a diagram:
+The `Domain Key` protects the `Customer Master Keys` which in turn protects the `Instance Secrets`. This is a fairly common key hierarchy which we can be represented on a diagram:
 
 You can see on this diagram that there are also unnamed, intermediate, derived keys for the `Domain Key` and for the `Customer Master Key`. From a functional standpoint, this can be ignored. It has to do with the cryptographic choice made by `Sovereign Keys`: the wrapping is done using [AES256-GCM](https://en.wikipedia.org/wiki/Galois/Counter_Mode). AES256-GCM is believed to be secure and provides the additional perk that it allows integrity checks natively as well as "Additional Authenticated Data" which we use as part of our authorization mechanism. But AES-GCM fails catastrophically if you ever encrypt different data with the same Initialisation Vector. We will not dive too deep, but just know that using a one-time derived key rather than directly the static key is a good way to avoid that pitfall. The precise derivation mechanism is not on the diagram because it depends on the particular HSM backend used by `Sovereign Keys` (they don't offer the same mechanisms).
 
