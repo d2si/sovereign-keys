@@ -121,7 +121,7 @@ As it does not provide access to the Operating System, Amazon Relational Databas
 ## Supported Operating Systems and platform
 Currently, the `Sovereign Keys` agent supports the following Operating System:
 - Any Linux distribution as long as LUKS, curl and openssl are available
-- Any Windows server after 2012 R2 included
+- Any Windows server after 2012 R2 included (the Agent creation is in the backlog, <a href="https://github.com/d2si/sovereign-keys/issues">Request Feature</a> if you wish to tell us to accelerate on that)
 
 x86, x86_64 and ARM are all supported, depending on the OS support (the agent is really just a bunch of scripts, nothing is compiled).
 
@@ -248,9 +248,13 @@ These steps will create an initial deployment of `Sovereign Keys`. It will not b
 
 The next sections and steps depend heavily on the usage of SSH on the Bastion instance. You SHOULD always use SSH to connect to the Bastion instead of Session Manager, especially when you are configuring secrets. Let's configure your Public SSH key on the bastion instance.
 
-If you don't have an SSH Keypair yet, please create one. For example:
+If you don't have an SSH Keypair yet, please create one:
 ```sh
 ssh-keygen -b 2048 -t rsa
+```
+Then you can print your public key:
+```sh
+cat ~/.ssh/id_rsa.pub
 ```
 If you plan on using Putty, that's fine but you are on your own for the configurations (though it is by and large the same logic).
 
@@ -305,7 +309,6 @@ If you plan on using Putty, that's fine but you are on your own for the configur
     bastion_ip=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].PublicIpAddress")
     ssh ec2-user@$bastion_ip
     ```
-    Note: It probably won't work from the Windows Bash subsystem because of the way file permissions are handled.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -1225,22 +1228,33 @@ Note that the bastion will be kept running, you can shut it down manually if you
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     for hsm in $(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
     ```
-2. Remove the cluster itself:
+2. Modify the configuration file `main-configuration.json` at the root of the repository and toggle ToggleMainResourceCreation to *false*.
+3. Commit and push your modification:
+    ```sh
+    # Say you are at the root of the CodeCommit repository
+    git add .
+    git commit -m "Removing most the EC2 instances"
+    git push
+    ```
+4. Remove the cluster itself:
     ```sh
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 delete-cluster --cluster-id $cluster_id
     ```
-3. Empty all the S3 buckets if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account. The bucket to empty are named:
+5. Empty all the S3 buckets if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account. The bucket to empty are named:
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-audit-logs
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-customer-audit-logs
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-ekt **/!\ HUGE WARNING HERE /!\\**: emptying this bucket is the same thing as deleting every SK volumes and their snapshots. If you are in a production environment, **you DON'T WANT TO DO THAT**.
-4. Delete the CloudHSM cluster Security Group, as it will prevent the VPC removal
-5. Delete the `Sovereign Keys` architecture stack:
+6. Remove the CloudHSM cluster Security Group from the Bastion isntance
+7. Delete the CloudHSM cluster Security Group, as it will prevent the VPC removal 
+8. Terminate the `ec2-sovereign-keys-test-customer-test-instance-restored`, as it will prevent the "dummy" customer VPC removal
+9. Delete the AMI and snapshots created during the tests
+10. Delete the `Sovereign Keys` architecture stack:
     ```sh
     aws cloudformation delete-stack --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-delete-complete --stack-name cfn-sovereign-keys-mainstack
     ```
-6. Delete the `Sovereign Keys` pipeline stack:
+11. Confirme the architecture stack is correctly deleted, **then** delete the `Sovereign Keys` pipeline stack:
     ```sh
     aws cloudformation delete-stack --stack-name sk-stack
     ```
@@ -1252,11 +1266,11 @@ Note that the bastion will be kept running, you can shut it down manually if you
 
 ## Technical Overview
 
-The installation steps you have or will follow ultimatelly deploy the following technical stack:
+The installation steps you have or will follow ultimately deploy the following technical stack:
 
 ![Demo Architecture Overview](images/demo-architecture-overview.png)
 
-The HSM cluster is kind of floating in nothingness in this schema, because we don't want to suppose a particular HSM backend architecture but in order for `Sovereign Keys` to work, there MUST be HSMs somewhere. If you are testing the solution, chances are you provisionned some CloudHSM nodes in the `Sovereign Keys` VPC.
+The HSM cluster is kind of floating in nothingness in this schema, because we don't want to suppose a particular HSM backend architecture but in order for `Sovereign Keys` to work, there MUST be HSMs somewhere. If you are testing the solution, chances are you provisioned some CloudHSM nodes in the `Sovereign Keys` VPC.
 
 Now this stack is the production stack, but the schema does not give you the full picture. The "dummy" customer VPC is there to test and validate the service but in a real-world example, there will be other VPCs, even in other AWS accounts. They MUST be in the same region though, because we are using the API Gateway endpoint to communicate with the API.
 
@@ -1269,23 +1283,23 @@ It is quite the same, but it shows the fact that multiple VPCs in multiple AWS a
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Functional Design
-`Sovereign Keys` is a system that provide EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefore encrypted at the OS level and data written on the volume never leave the instance in clear-text. This is slightly different from what happen with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that perform the encryption/decryption process. The `Sovereign Keys` system can be devided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
+`Sovereign Keys` is a system that provides EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefore encrypted at the OS level and data written on the volume never leaves the instance in clear-text. This is slightly different from what happens with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that performs the encryption/decryption process. The `Sovereign Keys` system can be divided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
 
 This simple illustration summarize the previous paragraph:
 
 ![Simple illustration](images/simple-illustration.png)
 
-Note that AWS KMS is present on the schema only to underline how it difers from the `Sovereign Keys` encryption; but KMS does not play any role in the architecture: it can be used or not whithout any impact.
+Note that AWS KMS is present on the schema only to underline how it differs from the `Sovereign Keys` encryption; but KMS does not play any role in the architecture: it can be used or not without any impact.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Cryptographic security
-The design choice for `Sovereign Keys` is that **all the cryptographic operations are performed by the HSM, in the HSM, and no customer secret of any kind are ever handled in cleartext by the `Sovereign Keys` API itself**. Random Numbers generation is also made by the HSM so we can have true randomness. Moreover, every cryptographic algorithm used by `Sovereign Keys` are recommanded by the NIST (National Institute of Standards and Technology) and the French ANSSI (Agence Nationale de Securité des Systèmes d'Information) and used within the boundaries of their approbation.
+The design choice for `Sovereign Keys` is that **all the cryptographic operations are performed by the HSM, in the HSM, and no customer secret of any kind are ever handled in cleartext by the `Sovereign Keys` API itself**. Random Numbers generation is also made by the HSM so we can have true randomness. Moreover, every cryptographic algorithm used by `Sovereign Keys` are recommended by the NIST (National Institute of Standards and Technology) and the French ANSSI (Agence Nationale de Securité des Systèmes d'Information) and used within the boundaries of their approbation.
 
 This approach greatly reduce the risks of leaking secrets at multiple levels:
-- side-chanel attacks performed by AWS on the cryptographic operations are not possible, especially if you use HSMs hosted outside of the Cloud;
+- side-channel attacks performed by AWS on the cryptographic operations are not possible, especially if you use HSMs hosted outside of the Cloud;
 - the compromission of the API itself is less likely to lead to secrets being leaked;
-- we leave the care to correctly handle cryptographic algorithms to specialized hardware which reduce the chances of faulty implementation.
+- we leave the care to correctly handle cryptographic algorithms to specialized hardware which reduces the chances of faulty implementation.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -1302,9 +1316,9 @@ The key hierarchy has 3 levels:
 
 The `Domain Key` protects the `Customer Master Keys` which in turn protects the `Instance Secrets`. This is a fairly common key hierarchy which we can be represent on a diagram:
 
-You can se on this diagram that there is also unnamed, intermediate, derived keys for the `Domain Key` and for the `Customer Master Key`. From a functionnal standpoint, this can be ignored. It has to do with the cryptographic choice made by `Sovereign Keys`: the wrapping is done using [AES256-GCM](https://en.wikipedia.org/wiki/Galois/Counter_Mode). AES256-GCM is believed to be secure and provides the additional perk that it allows integrity checks natively as well as "Additional Authenticated Data" which we use as part of our authorization mechanism. But AES-GCM fails catastrophically if you ever encrypt different data with the same Initialisation Vector. We will not dive too deep, but just know that using a one-time derived key rather than directly the static key is a good way to avoid that pitfall. The precise derivation mechanism is not on the diagram because it depends on the particular HSM backend used by `Sovereign Keys` (they don't offer the same mecanisms).
+You can see on this diagram that there are also unnamed, intermediate, derived keys for the `Domain Key` and for the `Customer Master Key`. From a functional standpoint, this can be ignored. It has to do with the cryptographic choice made by `Sovereign Keys`: the wrapping is done using [AES256-GCM](https://en.wikipedia.org/wiki/Galois/Counter_Mode). AES256-GCM is believed to be secure and provides the additional perk that it allows integrity checks natively as well as "Additional Authenticated Data" which we use as part of our authorization mechanism. But AES-GCM fails catastrophically if you ever encrypt different data with the same Initialisation Vector. We will not dive too deep, but just know that using a one-time derived key rather than directly the static key is a good way to avoid that pitfall. The precise derivation mechanism is not on the diagram because it depends on the particular HSM backend used by `Sovereign Keys` (they don't offer the same mechanisms).
 
-Now that we have the hierarchy in mind, it is also usefull to know where each key can exist in cleartext or encrypted form.
+Now that we have the hierarchy in mind, it is also useful to know where each key can exist in cleartext or encrypted form.
 
 ![Key residency](images/key-residency.png)
 
@@ -1312,18 +1326,18 @@ The `Domain Key` can only exist in the memory of the HSM backend. The HSM guaran
 
 A `Customer Master Key` can only exist in clear-text form inside the HSM. But, as there can be a lot of them, it would be a bad idea to store them all permanently in the HSM, so `Sovereign Keys` use the `Domain Key` to wrap `Customer Master Keys` and store them in an S3 Bucket. As the `Domain Key` cannot exist outside the HSM, it means that a `Customer Master Key` can only be unwrapped inside the HSM.
 
-An `Instance Secret` can exist in clear text in the HSM and in the customer instance RAM. Indeed, the operating System need to know the secret to be able to encrypt/decrypt the EBS volumes. However, the `Instance Secret` is only stored on the instance volume in its wrapped (encrypted) form. `Sovereign Keys` is a mandatory waypoint to retrieve the `Instance Secret` from its wrapped form because it is wrapped using the `Customer Master Key`, which can only be used inside `Sovereign Keys` HSMs.
+An `Instance Secret` can exist in clear text in the HSM and in the customer instance RAM. Indeed, the operating System needs to know the secret to be able to encrypt/decrypt the EBS volumes. However, the `Instance Secret` is only stored on the instance volume in its wrapped (encrypted) form. `Sovereign Keys` is a mandatory waypoint to retrieve the `Instance Secret` from its wrapped form because it is wrapped using the `Customer Master Key`, which can only be used inside `Sovereign Keys` HSMs.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Customer instance interactions with Sovereign Keys
 
-Awesome! We know have a good view of the key hierarchy and the key residency. But how does `Sovereign Keys` manages to give the customer instance its `Instance Secret` securely? Indeed, the customer instance **CANNOT** retrieve the `Instance Secret` directly from its wrapped form, only `Sovereign Keys` HSMs can do that. And so we come to the topic of the interactions between `Sovereign Keys` and customer instances. We will not dive to deep, here we just want to get an idea of how it works.
+Awesome! We now have a good view of the key hierarchy and the key residency. But how does `Sovereign Keys` manage to give the customer instance its `Instance Secret` securely? Indeed, the customer instance **CANNOT** retrieve the `Instance Secret` directly from its wrapped form, only `Sovereign Keys` HSMs can do that. And so we come to the topic of the interactions between `Sovereign Keys` and customer instances. We will not dive too deep, here we just want to get an idea of how it works.
 
 We want to ensure multiple things:
 - `Sovereign Keys` should be able to authenticate the customer instance, i.e. verify its identity;
 - `Sovereign Keys` should be able to authorize the customer instance, i.e. verify it is allowed to ask for a particular `Instance Secret`;
-- `Sovereign Keys` should be able to transmit the `Instance Secret` to the customer instance in a way that prevent others to intercept or modify it.
+- `Sovereign Keys` should be able to transmit the `Instance Secret` to the customer instance in a way that prevents others from intercepting or modifying it.
 
 ### Authenticate
 
@@ -1331,7 +1345,7 @@ Due to the way `Sovereign Keys` is made available to customer instances (see [Pr
 
 ![Authenticate instance](images/authenticate-instance.png)
 
-When the customer instance asks for a new secret or to decrypt an existing one, it put its instance ID among the API call parameter. Using some additionnal logic and setup, `Sovereign Keys` is able to assume an IAM Role into the customer AWS account and to verify if the alleged instance ID:
+When the customer instance asks for a new secret or to decrypt an existing one, it put its instance ID among the API call parameter. Using some additional logic and setup, `Sovereign Keys` is able to assume an IAM Role into the customer AWS account and to verify if the alleged instance ID:
 1. do exist;
 2. is in the right VPC;
 3. has the expected private IP address.
@@ -1342,11 +1356,11 @@ If those conditions are all valid, `Sovereign Keys` considers the instance authe
 
 ### Authorize
 
-There is no conventional authorization mechanism implemented in `Sovereign Keys`. This is because the `Instance Secret` is cryptographically linked to an instance ID. Technically, it means that when we first wrap the `Instance Secret` with the `Customer Master Key`, we insert the requesting instance ID in the AES256-GCM Additional Authenticated Data. The way AES256-GCM is implemented guarantees that the HSM will **refuse** to unwrap the `Instance Secret` if `Sovereign Keys` does not provide the exact same Additional Authenticated Data that where provided for the previous wrap operation.
+There is no conventional authorization mechanism implemented in `Sovereign Keys`. This is because the `Instance Secret` is cryptographically linked to an instance ID. Technically, it means that when we first wrap the `Instance Secret` with the `Customer Master Key`, we insert the requesting instance ID in the AES256-GCM Additional Authenticated Data. The way AES256-GCM is implemented guarantees that the HSM will **refuse** to unwrap the `Instance Secret` if `Sovereign Keys` does not provide the exact same Additional Authenticated Data that were provided for the previous wrap operation.
 
 Therefore, if a customer instance tries to ask `Sovereign Keys` to decrypt a secret it does not own, one of two things can happen:
 - the "rogue" customer instance tries to include the "owner" instance ID in the decrypt call, in that case the authentication will fail because it is impossible that 2 different instances shares the same IP in the same VPC at the same time;
-- the "rogue" customer instance include its own instance ID in the decrypt call, in that case the authentication will succeed but the AES256-GCM Additional Authenticated Data will no longer be correct and the decryption will fail in the HSM.
+- the "rogue" customer instance includes its own instance ID in the decrypt call, in that case the authentication will succeed but the AES256-GCM Additional Authenticated Data will no longer be correct and the decryption will fail in the HSM.
 
 If you **DO** want to transfer the "ownership" of an `Instance Secret` from one instance to another (e.g. to restore a snapshot to another EC2 instance), there is a special `Sovereign Keys` API call specifically for this operation that will be properly traced in the audit logs.
 
@@ -1354,19 +1368,19 @@ If you **DO** want to transfer the "ownership" of an `Instance Secret` from one 
 
 ### Transmit
 
-In order to securely transmit the `Instance Secret` to a customer instance, we use asymetric-encryption with RSA-4096. Each time it need to retrieve an `Instance Secret`, the `Sovereign Keys` agent installed on the customer instance will generate a one-time RSA-4096 key pair and it will send the public key to the `Sovereign Keys` API along with the other parameters.
+In order to securely transmit the `Instance Secret` to a customer instance, we use asymmetric-encryption with RSA-4096. Each time it needs to retrieve an `Instance Secret`, the `Sovereign Keys` agent installed on the customer instance will generate a one-time RSA-4096 key pair and it will send the public key to the `Sovereign Keys` API along with the other parameters.
 
-For exemple, when the customer instance wants to decrypt an existing `Instance Secret`, it looks (very roughly) like that:
+For example, when the customer instance wants to decrypt an existing `Instance Secret`, it looks (very roughly) like that:
 
 ![Transmit secret](images/transmit-secret.png)
 
-It is quite similar in principle when `Sovereign Keys` generates and return a new `Instance Secret`.
+It is quite similar in principle when `Sovereign Keys` generates and returns a new `Instance Secret`.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Sequence diagram: Init drive encryption
 
-As additionnal informations, here is a sequence diagram of what happen when a customer instance request a new `Instance Secret`:
+As additional informations, here is a sequence diagram of what happen when a customer instance request a new `Instance Secret`:
 
 ![Init drive encryption](images/seq-diag-init-encryption.png)
 
@@ -1374,9 +1388,28 @@ As additionnal informations, here is a sequence diagram of what happen when a cu
 
 ### Sequence diagram: Unlock drive
 
-As additionnal informations, here is a sequence diagram of what happen when a customer instance asks to decrypt its existing `Instance Secret`:
+As additional informations, here is a sequence diagram of what happen when a customer instance asks to decrypt its existing `Instance Secret`:
 
 ![Unlock Volume](images/seq-diag-unlock-vol.png)
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+### Visualizing the path of a request
+
+Finally, here is a schema of what happens in the architecture when a customer instance asks to generate a secret or to decrypt an existing one:
+
+![Typical Decrypt Path](images/typical-decrypt-path.png)
+
+1. The Customer instance agent initiate an API call to the Private API Gateway
+2. The request authorization is delegated to the Auth Lambda (a custom authorizer)
+3. The Auth lambda verify if the calling VPC ID is registered in the DynamoDB table and, if yes, retrieves the ARN of the role to assume
+4. The Auth Lambda assumes the role and use it to verify that the calling instance ID match the calling IP address in the calling VPC
+5. Assuming the Authentication was successful, the request is forwarded to the `Sovereign Keys` API instances though Private Link
+6. The instance handling the request retrieve customer infos from the DynamoDB table, such as the name of the EKT or weither or not there is a Customer audit bucket
+7. The instance handling the request retrieve the EKT from S3
+8. The instance handling the request make the HSMs perform **all the cryptographic operations** necessary to serve the request
+9. The instance handling the request pushes the sequenced log file in the audit bucket(s)
+10. The request response is returned to the calling customer instance
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -1384,11 +1417,11 @@ As additionnal informations, here is a sequence diagram of what happen when a cu
 
 It depends. But ultimately, **no**.
 
-As stated from the very begining of this document, **NOTHING** can ultimately give you a technical immunity against the Cloud provider.
+As stated from the very beginning of this document, **NOTHING** can ultimately give you a technical immunity against the Cloud provider.
 
-Of course, a precise answer to this question depends on the threat-model you are using, i.e. what do you consider a realistic threat from the Cloud provider in is alleged quest to retrieve your data?
+Of course, a precise answer to this question depends on the threat-model you are using, i.e. what do you consider a realistic threat from the Cloud provider in its alleged quest to retrieve your data?
 
-For example, you could consider that your Cloud provider is lying to you from the very begining, that it can read the RAM of your instances, or even that there is special devices plugged on server motherboards to read the data buses: in that case there is absolutly nothing you can do to defend yourself but to simply not put data in the Cloud.
+For example, you could consider that your Cloud provider is lying to you from the very beginning, that it can read the RAM of your instances, or even that there is special devices plugged on server motherboards to read the data buses: in that case there is absolutely nothing you can do to defend yourself save to simply not put your data in the Cloud.
 
 But if you assume that the Cloud provider is simply able to **read** data on EBS volumes or transiting in its network, then `Sovereign Keys` protects your data against the Cloud provider.
 
@@ -1423,7 +1456,7 @@ No license for now. No one can legally use this code.
 
 <!-- CONTACT -->
 # Contact
-If you need assistance in using `Sovereign Keys` or if you want us to help you mount a POC (Proof Of Concept), don't hesitate to contact our team: [contact@revolve.team](mailto:contact@revolve.team)
+If you need assistance in using `Sovereign Keys` or want us to help you mount a POC (Proof Of Concept) or want to discuss with subject-matter experts, don't hesitate to contact our team: [contact@revolve.team](mailto:contact@revolve.team)
 
 If you wish to make a suggestion or a feature request, see the [open issues](https://github.com/d2si/sovereign-keys/issues) for a full list of proposed features (and known issues).
 
@@ -1433,6 +1466,8 @@ Project Link: [https://github.com/d2si/sovereign-keys](https://github.com/d2si/s
 
 <!-- ACKNOWLEDGMENTS -->
 # Acknowledgments
+
+Bigup to the people that help building `Sovereign Keys`:
 
 * Jérémie RODON - [@JeremieRodon](https://twitter.com/JeremieRodon) - jeremie@revolve.team
 
