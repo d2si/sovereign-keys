@@ -7,8 +7,6 @@
 *** Thanks again! Now go create something AMAZING! :D
 -->
 
-
-
 <!-- PROJECT SHIELDS -->
 <!--
 *** I'm using markdown "reference style" links for readability.
@@ -24,7 +22,6 @@
 [![Issues][issues-shield]][issues-url]
 [![GNU GPLv3 License][license-shield]][license-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
-
 
 
 <!-- PROJECT LOGO -->
@@ -159,7 +156,7 @@ The core services sustaining `Sovereign Keys` are:
 - [Network Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html) and [Amazon PrivateLink](https://aws.amazon.com/privatelink/)
 - And of course, transversal services like [AWS IAM](https://aws.amazon.com/iam/), [Amazon VPC](https://aws.amazon.com/vpc/), [AWS Systems Manager](https://aws.amazon.com/systems-manager/), etc...
 
-In order to simplify the deployement process and minimize assumption about the technologies available to you, everything in this repo is written to work in an AWS-native CICD tooling using:
+In order to simplify the deployement process and minimize assumptions about the technologies available to you, everything in this repo is written to work in an AWS-native CICD tooling using:
 - [AWS CodePipeline](https://aws.amazon.com/codepipeline/)
 - [AWS CodeCommit](https://aws.amazon.com/codecommit/)
 - [AWS CodeBuild](https://aws.amazon.com/codebuild/)
@@ -167,28 +164,32 @@ In order to simplify the deployement process and minimize assumption about the t
 
 Therefore the only technical AWS prerequisite is that you have an administrator access to some AWS account (technically, you only need admin access to the services previously listed but as it includes AWS IAM you might as well be an account admin).
 
-Finaly, you should be familiar with DevOps tools like `bash`, `git`, `curl` and `ssh` in order to perform the installation steps.
+Finally, you should be familiar with DevOps tools like `bash`, `git`, `curl` and `ssh` in order to perform the installation steps.
 
 ## AWS Costs
 
-By itself, Sovereign keys does not cost much: around $50/month.
+By itself, `Sovereign Keys` does not cost much: around $50/month.
 
 If you plan on using your own HSMs, you will probably add VPN costs on top of that, so depending on your configuration, maybe an additional $50-$150/month.
 
-But be warned, if you plan to use [CloudHSM](https://aws.amazon.com/cloudhsm/) as a backend, it will cost anywhere between $2000 and $3000/month depending on the AWS region. See [CloudHSM Pricing](https://aws.amazon.com/cloudhsm/pricing/) for details.
+But be warned if you plan to use [CloudHSM](https://aws.amazon.com/cloudhsm/) as a backend: it will cost anywhere between $2000 and $3000/month depending on the AWS region. See [CloudHSM Pricing](https://aws.amazon.com/cloudhsm/pricing/) for details.
 
-If you just want to make a test, just be sure to shutdown your HSM **nodes** (**DO NOT** remove the **cluster**) as soon as you are not actively testing anymore. It takes only ~15 minutes to get them back online and you will not loose any data because AWS provides an automatic backup/restore mecanism for the cluster. So for example, if you plan to do a 5 days test with 8 hours per day, you can expect the cost of your test do be around $150; providing you don't forget to shutdown your HSM nodes each evening.
+If you just want to make a test, just be sure to shutdown your HSM **nodes** (**DO NOT** remove the **cluster**) as soon as you are not actively testing anymore. It takes only ~15 minutes to get them back online and you will not loose any data because AWS provides an automatic backup/restore mecanism for the cluster. So for example, if you plan to do a 5 days test with 8 hours per day, you can expect the cost of your test do be around $100; providing you don't forget to shutdown your HSM nodes each evening.
 
 ## Installation
 
 Every CLI commands given in those installation steps work under the following conditions:
-- you are running them in an environment **configured for the target AWS account** you want to use, with the **target region as a default**;
-- you don't change the value of the ProjectName when you create the Sovereign Keys CloudFormation stack;
+- you are running them in an environment **configured with credentials for the AWS account** you want to use, with the **target region as a default**;
+- you don't change the value of the ProjectName when you create the `Sovereign Keys` CloudFormation stack;
 - you use a Linux bash or the Windows Bash sub-system.
 
 The default AWS region for the CLI can be configured like this:
 ```sh
 aws configure set default.region <aws-region-code>
+```
+or like this:
+```sh
+export AWS_DEFAULT_REGION=<aws-region-code>
 ```
 
 ### Initial Sovereign Keys provisionning
@@ -219,7 +220,7 @@ These steps will create an initial deployement of `Sovereign Keys`. It will not 
     repo_url=$(aws cloudformation describe-stacks --stack-name sk-stack --output text --query "Stacks[0].Outputs[?OutputKey=='RepoUrlHttp'].OutputValue")
     git clone $repo_url -c 'credential.UseHttpPath=true' -c 'credential.helper=!aws codecommit credential-helper'
     ```
-6. Copy the entire content of the GitHub Sovereign Keys repository into your CodeCommit repository and commit/push it:
+6. Copy the entire content of the GitHub `Sovereign Keys` repository into your CodeCommit repository and commit/push it:
     ```sh
     # Say you are in the common parent folder of both repository
     cp -R sovereign-keys/* cc-sovereign-keys-repo/
@@ -228,7 +229,7 @@ These steps will create an initial deployement of `Sovereign Keys`. It will not 
     git commit -m "Initial commit"
     git push
     ```
-7. Wait for CodePipeline to works its magic, it will create the Sovereign Keys architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the Sovereign Keys architecture, see the see <a href="#architecture">Architecture</a> section.
+7. Wait for CodePipeline to works its magic, it will create the `Sovereign Keys` architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the `Sovereign Keys` architecture, see the see <a href="#architecture">Architecture</a> section.
     ```sh
     aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-create-complete --stack-name cfn-sovereign-keys-mainstack
@@ -329,7 +330,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
 2. When the cluster State becomes *UNINITIALIZED*, create an HSM in the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-hsm.html)):
     ```sh
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)a
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")a
     ```
 3. At this point, you can retrieve the manufacter and the AWS root certificates. If it is for production use, you should verify the HSM identity ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/verify-hsm-identity.html))
 4. Initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)). This step will yield the `customerCA.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/customerCA.crt`
@@ -366,7 +367,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     logoutHSM
     listUsers
     ```
-9. Still in the aws-cloudhsm prompt, create a new **CU** user for Sovereign Keys(doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/cli-users.html#manage-users)):
+9. Still in the aws-cloudhsm prompt, create a new **CU** user for `Sovereign Keys` (doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/cli-users.html#manage-users)):
     ```sh
     ####################################
     # Executed on the Bastion instance #
@@ -388,7 +389,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
 11. (Optional) Create a second HSM in the cluster, in another AZ (recommended for production use). Assuming you have only one cluster:
     ```sh
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)b
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")b
     ```
 12. Reconfigure SSL ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certicate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional. This step will yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
 
@@ -529,7 +530,7 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     mssh $sk_instance_id
     ```
     Note: because they are currently without secrets, the instance cannot interact with the HSMs, therefore they are considered unhealthy by the NLB and the ASG is periodically killing them and creating new ones. The previous commands ensure to connect to an instance still considered healthy, which should give you at least 2 minutes to perform the following steps. If you encounter errors, retry from this step.
-3. First we need to give the Private key to the API. In the following script, replace `<content of ssl-client.key>` by the actual content of `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and paste the result on the Sovereign Keys instance:
+3. First we need to give the Private key to the API. In the following script, replace `<content of ssl-client.key>` by the actual content of `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and paste the result on the `Sovereign Keys` instance:
     ```sh
     ##################################################
     # Executed on an healthy Sovereign Keys instance #
@@ -859,7 +860,7 @@ We will do the exemple with an AMI, because that is less AWS heavy-lifting and i
     Asking Revolve Sovereign Key API to decrypt the secret...       NOK
     Cleaning up...
     ```
-    Damn! It does not work, the Sovereign Keys API did not decrypt the secret... Why? Because the secret we have is owned by the instance ID of `ec2-sovereign-keys-test-customer-test-instance`, and we don't have the same on `ec2-sovereign-keys-test-customer-test-instance-restored`. We need to take ownership of the secret first
+    Damn! It does not work, the `Sovereign Keys` API did not decrypt the secret... Why? Because the secret we have is owned by the instance ID of `ec2-sovereign-keys-test-customer-test-instance`, and we don't have the same on `ec2-sovereign-keys-test-customer-test-instance-restored`. We need to take ownership of the secret first
 5. Take ownership of the secret using sk-takeown and giving the instance ID of `ec2-sovereign-keys-test-customer-test-instance`:
     ```sh
     #########################################
@@ -1117,12 +1118,12 @@ Note that the bastion will be kept running, you can shut it down manually if you
 1. Create at least one HSM in the cluster. Assuming you have only one cluster:
     ```sh
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)a
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")a
     ```
 2. (Optional) Create a second HSM in the cluster, in another AZ (recommended for production use). Assuming you have only one cluster:
     ```sh
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws configure get region)b
+    aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")b
     ```
 3. Wait for the HSM(s) to be "Active"
 4. Modify the configuration file `main-configuration.json` at the root of the repository and toggle ToggleMainResourceCreation to *true*.
@@ -1170,7 +1171,7 @@ The installation steps you have or will follow ultimatelly deploy the following 
 
 ![Demo Architecture Overview](images/demo-architecture-overview.png)
 
-The HSM cluster is kind of floating in nothingness in this schema, because we don't want to suppose a particular HSM backend architecture but in order for `Sovereign Keys` to work, there MUST be HSMs somewhere. If you are testing the solution, chances are you provisionned some CloudHSM nodes in the Sovereign Keys VPC.
+The HSM cluster is kind of floating in nothingness in this schema, because we don't want to suppose a particular HSM backend architecture but in order for `Sovereign Keys` to work, there MUST be HSMs somewhere. If you are testing the solution, chances are you provisionned some CloudHSM nodes in the `Sovereign Keys` VPC.
 
 Now this stack is the production stack, but the schema does not give you the full picture. The "dummy" customer VPC is there to test and validate the service but in a real-world example, there will be other VPCs, even in other AWS accounts. They MUST be in the same region though, because we are using the API Gateway endpoint to communicate with the API.
 
@@ -1181,7 +1182,7 @@ A more "real" architecture would look like this:
 It is quite the same, but it shows the fact that multiple VPCs in multiple AWS accounts can use the `Sovereign Keys` API. Also, for a production environment you might not want NAT instances giving Internet access to the API instances but instead use VPC endpoints to only enable the communication with the necessary AWS services.
 
 ## Functional Design
-`Sovereign Keys` is a system that provide EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefor encrypted at the OS level and data written on the volume never leave the instance in clear-text. This is slightly different from what happen with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that perform the encryption/decryption process. The `Sovereign Keys` system can be devided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
+`Sovereign Keys` is a system that provide EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefore encrypted at the OS level and data written on the volume never leave the instance in clear-text. This is slightly different from what happen with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that perform the encryption/decryption process. The `Sovereign Keys` system can be devided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
 
 This simple illustration summarize the previous paragraph:
 
