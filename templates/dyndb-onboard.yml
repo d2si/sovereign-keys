@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: VPC stack
+Description: Automatic creation of an Item in DynamoDB
 Parameters:
   CustomDynDBOnboardArn:
     Type: String

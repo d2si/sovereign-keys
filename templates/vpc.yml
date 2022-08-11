@@ -456,6 +456,10 @@ Resources:
                 Effect: Allow
                 Action: autoscaling:DescribeAutoScalingGroups
                 Resource: '*'
+              - Sid: DescribeCFStacks
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: '*'
       Path: /
   BastionInstanceLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate

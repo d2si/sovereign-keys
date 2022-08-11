@@ -231,13 +231,11 @@ These steps will create an initial deployement of `Sovereign Keys`. It will not 
     ```
 7. Wait for CodePipeline to works its magic, it will create the `Sovereign Keys` architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the `Sovereign Keys` architecture, see the see <a href="#architecture">Architecture</a> section.
     ```sh
+    # Each wait stack-exists is for max 100 seconds...
+    aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
+    aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-create-complete --stack-name cfn-sovereign-keys-mainstack
-    ```
-
-8. Take note of the `Private API Gateway URL`, we will need it later. You can retrieve it in the API Gateway Console or via the CLI:
-    ```sh
-    aws cloudformation describe-stacks --stack-name cfn-sovereign-keys-mainstack --output text --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue"
     ```
 
 ### Configure SSH on the Bastion instance
@@ -577,8 +575,6 @@ Final step of our journey, configurating the customer agent so that we have a wo
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
-We already have the `Private API Gateway URL` from step 8 of <a href="#initial-sovereign-keys-provisionning">Initial Sovereign Keys provisionning</a>, let's retrieve `api_public_key.pem`.
-
 1. Connect to the bastion using SSH (if you cannot, see steps 1 to 5 from <a href="#finalizing-the-api-installation">Finalizing the API installation</a>):
     ```sh
     ################################
@@ -586,12 +582,19 @@ We already have the `Private API Gateway URL` from step 8 of <a href="#initial-s
     ################################
     ssh ec2-user@$bastion_ip
     ```
-2. Retrieve the `Sovereign Keys Public Signing Key` by asking the `Sovereign Keys` API. Replace `<Private API Gateway URL>` by the `Private API Gateway URL`:
+2. Take note of the `Private API Gateway URL`. You can retrieve it in the API Gateway Console or via the CLI:
+    ```sh
+    ###################################################
+    # Executed on the local shell or bastion instance #
+    ###################################################
+    aws cloudformation describe-stacks --stack-name cfn-sovereign-keys-mainstack --output text --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue"
+    ```
+3. Retrieve the `Sovereign Keys Public Signing Key` by asking the `Sovereign Keys` API:
     ```sh
     ####################################
     # Executed on the Bastion instance #
     ####################################
-    BASE_URL=<Private API Gateway URL>
+    BASE_URL=$(aws cloudformation describe-stacks --stack-name cfn-sovereign-keys-mainstack --output text --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue")
     # Retrieve EC pub key
     echo Retrieve the SK API signing public key
     RES=$(curl -H "Authorization: osef" -H "Content-Type: application/json" -X GET $BASE_URL/public-signing-key 2>/dev/null)
@@ -601,38 +604,38 @@ We already have the `Private API Gateway URL` from step 8 of <a href="#initial-s
     -----END PUBLIC KEY-----
     EOF
     ```
-3. Exit the SSH session
+4. Exit the SSH session
     ```sh
     ####################################
     # Executed on the Bastion instance #
     ####################################
     exit
     ```
-4. Copy the file using `scp`
+5. Copy the file using `scp`
     ```sh
     ################################
     # Executed on your local shell #
     ################################
     scp ec2-user@<bastion-public-ip>:api_public_key.pem .
     ```
-5. Copy `api_public_key.pem` in the CodeCommit repository at `agent/linux/sources/etc/sovereign-keys/api_public_key.pem` (override the existing placeholder). For example, the content should look similar to this:
+6. Copy `api_public_key.pem` in the CodeCommit repository at `agent/linux/sources/etc/sovereign-keys/api_public_key.pem` (override the existing placeholder). For example, the content should look similar to this:
     ```
     -----BEGIN PUBLIC KEY-----
     EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE/Zky5hXNViQJsUZ8MsDM3DB3DmRGP39IOuYALyOiFKrBdcBQNDNAZP8tX5YEeRTjmmS7Ah621enEXSJjdlW3GRjsjOiD2hE4S63ud+pyeQQ4GaiYMd3wrk
     -----END PUBLIC KEY-----
     ```
-6. Edit the `agent/linux/sources/etc/sovereign-keys/api_url.txt` and make sure it contains `Private API Gateway URL`. For example, the content should look similar to this:
+7. Edit the `agent/linux/sources/etc/sovereign-keys/api_url.txt` and make sure it contains `Private API Gateway URL`. For example, the content should look similar to this:
     ```
     https://example15h.execute-api.eu-west-3.amazonaws.com/v1
     ```
-7. Commit and push your modifications:
+8. Commit and push your modifications:
     ```sh
     # Say you are at the root of the CodeCommit repository
     git add .
     git commit -m "Adding agent static configurations corresponding to the actual Sovereign Keys API"
     git push
     ```
-8. (Optional) At the end of the CodePipeline release process you can retrieve the RPM from S3, directly from the console or using the CLI:
+9. (Optional) At the end of the CodePipeline release process you can retrieve the RPM from S3, directly from the console or using the CLI:
     ```sh
     artifact_bucket=$(aws cloudformation list-exports --output text --query "Exports[?Name=='sovereign-keys:S3ArtifactBucketName'].Value")
     aws s3 cp s3://$artifact_bucket/agent/linux/sovereign-keys-1.1.0-1.noarch.rpm .
