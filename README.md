@@ -55,7 +55,7 @@
       <a href="#about-the-project">About The Project</a>
       <ul>
         <li><a href="#supported-cloud-provider-and-service">Supported Cloud provider and service</a></li>
-        <li><a href="#supported-operating-systems-and-plateform">Supported Operating Systems and plateform</a></li>
+        <li><a href="#supported-operating-systems-and-platform">Supported Operating Systems and platform</a></li>
         <li><a href="#supported-hsms">Supported HSMs</a></li>
       </ul>
     </li>
@@ -93,23 +93,22 @@ Sovereignty has become a major concern for companies with the rise of Cloud comp
 
 First a word of clarification: **NO TECHNICAL SOLUTION** CAN PROVIDE YOU WITH THE **ABSOLUTE CERTAINTY** THAT YOUR CLOUD PROVIDER CANNOT ACCESS THE DATA YOU PROCESS IN THE CLOUD AND `SOVEREIGN KEYS` **DOES NOT** MAKE SUCH A CLAIM.
 
-That being said, `Sovereign Keys` **does** bring you complementary assurances. Genaraly, `Sovereign Keys` is designed around the hyposthesis that your Cloud provider (i.e. AWS) **is not** actively seeking to steal your data for its own gain, but rather that it can be forced by the law to surrender your data to a (foreign) governement. It means that, while `Sovereign Keys` gives you additional data protection guaranties against AWS itself, it is also an excuse that AWS can use to argue they cannot comply with legally issued requests to access your data (e.g. requests issued under the CLOUD Act).
+That being said, `Sovereign Keys` **does** bring you complementary assurances. Generally, `Sovereign Keys` is designed around the hypothesis that your Cloud provider (i.e. AWS) **is not** actively seeking to steal your data for its own gain, but rather that it can be forced by the law to surrender your data to a (foreign) government. It means that, while `Sovereign Keys` gives you additional data protection guarantees against AWS itself, it is also an excuse that AWS can use to argue they cannot comply with legally issued requests to access your data (e.g. requests issued under the CLOUD Act).
 
-Diving deep into the additional data protection guaranties against AWS itself and the hypothesis we make is not the purpose of this document, nevertheless we can highlight some key points.
+Diving deep into the additional data protection guarantees against AWS itself and the hypothesis we make is not the purpose of this document, nevertheless we can highlight some key points.
 
-The core assumption we make is that AWS **cannot** read the memory (RAM) of a live EC2 instance. Without such an assumption, there is simply nothing we can possibily do at the present time to protect our data. If you believe that this assumption is wrong and you want to protect your data, you should simply not process your data in any Cloud. That being said, this assumption is a realistic one: AWS uses its own Hypervisor technology called [Nitro](https://aws.amazon.com/ec2/nitro/) which does not provide the technical ability to read the instances live memory. This is also verified by a third party.
+The core assumption we make is that AWS **cannot** read the memory (RAM) of a live EC2 instance. Without such an assumption, there is simply nothing we can possibly do at the present time to protect our data. If you believe that this assumption is wrong and you want to protect your data, you should simply not process your data in any Cloud. That being said, this assumption is a realistic one: AWS uses its own Hypervisor technology called [Nitro](https://aws.amazon.com/ec2/nitro/) which does not provide the technical ability to read the instances' live memory. This is also verified by a third party.
 
 Given the previous assumption, we can consider two general threat models:
 1. AWS can **READ** EBS volumes and network packets. In that case, `Sovereign Keys` will protect your data.
-2. AWS can **READ and WRITE** EBS volumes and network packets. In that case, `Sovereign Keys` will not be able to completly negate all the various ways AWS could use to fool the system and retrieve your data **BUT** it should be possible to detect by correlating `Sovereign Keys` logs with your own logs.
+2. AWS can **READ and WRITE** EBS volumes and network packets. In that case, `Sovereign Keys` will not be able to completely negate all the various ways AWS could use to fool the system and retrieve your data **BUT** it should be possible to detect by correlating `Sovereign Keys` logs with your own logs.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-
 ## Supported Cloud provider and service
-`Sovereign Keys` only supports Amazon Web Services (AWS) and only such services that allows you to access the Operating System as an administrator.
+`Sovereign Keys` only supports Amazon Web Services (AWS) and only such services that allow you to access the Operating System as an administrator.
 
-Such suported services includes:
+Such supported services includes:
 - EC2 instances
 - ECS/EKS worker instances
 - Elastic Beanstalk instances
@@ -119,7 +118,7 @@ As it does not provide access to the Operating System, Amazon Relational Databas
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-## Supported Operating Systems and plateform
+## Supported Operating Systems and platform
 Currently, the `Sovereign Keys` agent supports the following Operating System:
 - Any Linux distribution as long as LUKS, curl and openssl are available
 - Any Windows server after 2012 R2 included
@@ -128,13 +127,12 @@ x86, x86_64 and ARM are all supported, depending on the OS support (the agent is
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-
 ## Supported HSMs
 Currently, `Sovereign Keys` supports the following Hardware Security Module (HSM) products:
 - [AWS CloudHSM (v2)](https://aws.amazon.com/cloudhsm/)
 - [Atos (Bull) Trustway Proteccio netHSM](https://atos.net/en/solutions/cyber-security/data-protection-and-governance/hardware-security-module-trustway-proteccio-nethsm)
 
-Additionnal HSMs can be supported but will require additional code. `Sovereign Keys` use the widely implemented [PKCS#11](https://en.wikipedia.org/wiki/PKCS_11) standard to communicate with the HSMs, but unfortunately each vendor has some specifics in its implementation so it is not possible to simply "plug" any HSM.
+Additional HSMs can be supported but will require additional code. `Sovereign Keys` use the widely implemented [PKCS#11](https://en.wikipedia.org/wiki/PKCS_11) standard to communicate with the HSMs, but unfortunately each vendor has some specifics in its implementation so it is not possible to simply "plug" any HSM.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -156,15 +154,17 @@ The core services sustaining `Sovereign Keys` are:
 - [Network Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html) and [Amazon PrivateLink](https://aws.amazon.com/privatelink/)
 - And of course, transversal services like [AWS IAM](https://aws.amazon.com/iam/), [Amazon VPC](https://aws.amazon.com/vpc/), [AWS Systems Manager](https://aws.amazon.com/systems-manager/), etc...
 
-In order to simplify the deployement process and minimize assumptions about the technologies available to you, everything in this repo is written to work in an AWS-native CICD tooling using:
+In order to simplify the deployment process and minimize assumptions about the technologies available to you, everything in this repo is written to work in an AWS-native CICD tooling using:
 - [AWS CodePipeline](https://aws.amazon.com/codepipeline/)
 - [AWS CodeCommit](https://aws.amazon.com/codecommit/)
 - [AWS CodeBuild](https://aws.amazon.com/codebuild/)
 - [AWS CloudFormation](https://aws.amazon.com/cloudformation/)
 
-Therefore the only technical AWS prerequisite is that you have an administrator access to some AWS account (technically, you only need admin access to the services previously listed but as it includes AWS IAM you might as well be an account admin).
+Therefore the only technical AWS prerequisite is that you have administrative access to some AWS account (technically, you only need admin access to the services previously listed but as it includes AWS IAM you might as well be an account admin).
 
 Finally, you should be familiar with DevOps tools like `bash`, `git`, `curl` and `ssh` in order to perform the installation steps.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## AWS Costs
 
@@ -174,14 +174,16 @@ If you plan on using your own HSMs, you will probably add VPN costs on top of th
 
 But be warned if you plan to use [CloudHSM](https://aws.amazon.com/cloudhsm/) as a backend: it will cost anywhere between $2000 and $3000/month depending on the AWS region. See [CloudHSM Pricing](https://aws.amazon.com/cloudhsm/pricing/) for details.
 
-If you just want to make a test, just be sure to shutdown your HSM **nodes** (**DO NOT** remove the **cluster**) as soon as you are not actively testing anymore. It takes only ~15 minutes to get them back online and you will not loose any data because AWS provides an automatic backup/restore mecanism for the cluster. So for example, if you plan to do a 5 days test with 8 hours per day, you can expect the cost of your test do be around $100; providing you don't forget to shutdown your HSM nodes each evening.
+If you just want to make a test, just be sure to shutdown your HSM **nodes** (**DO NOT** remove the **cluster**) as soon as you are not actively testing anymore. It takes only ~15 minutes to get them back online and you will not lose any data because AWS provides an automatic backup/restore mechanism for the cluster. So for example, if you plan to do a 5 days test with 8 hours per day, you can expect the cost of your test to be around $100; providing you don't forget to shutdown your HSM nodes each evening.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Installation
 
 Every CLI commands given in those installation steps work under the following conditions:
 - you are running them in an environment **configured with credentials for the AWS account** you want to use, with the **target region as a default**;
 - you don't change the value of the ProjectName when you create the `Sovereign Keys` CloudFormation stack;
-- you use a Linux bash or the Windows Bash sub-system.
+- you use a Linux bash or the Windows Bash subsystem.
 
 The default AWS region for the CLI can be configured like this:
 ```sh
@@ -192,9 +194,11 @@ or like this:
 export AWS_DEFAULT_REGION=<aws-region-code>
 ```
 
-### Initial Sovereign Keys provisionning
+<p align="right">(<a href="#top">back to top</a>)</p>
 
-These steps will create an initial deployement of `Sovereign Keys`. It will not be functional at first because 1/ it will lack an HSM cluster backend and 2/ the `Sovereign Keys` agent cannot be correctly configured before first deploying the `Sovereign Keys` API. The two sections following this one will address those 2 points.
+### Initial Sovereign Keys provisioning
+
+These steps will create an initial deployment of `Sovereign Keys`. It will not be functional at first because 1/ it will lack an HSM cluster backend and 2/ the `Sovereign Keys` agent cannot be correctly configured before first deploying the `Sovereign Keys` API. The two sections following this one will address those 2 points.
 
 1. Clone the repo and go in it:
     ```sh
@@ -214,7 +218,7 @@ These steps will create an initial deployement of `Sovereign Keys`. It will not 
     ```sh
     aws cloudformation describe-stacks --stack-name sk-stack --query "Stacks[0].Outputs[?OutputKey=='RepoName'||OutputKey=='RepoUrlSsh'||OutputKey=='RepoUrlHttp'].OutputValue"
     ```
-5. Clone the (empty) CodeCommit repository. There are multiple ways to do that, via SSH or HTTPS, please refere to the [CodeCommit AWS documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/how-to-connect.html). Here is the command using the HTTPS URL and aws cli as a credential helper:
+5. Clone the (empty) CodeCommit repository. There are multiple ways to do that, via SSH or HTTPS, please refer to the [CodeCommit AWS documentation](https://docs.aws.amazon.com/codecommit/latest/userguide/how-to-connect.html). Here is the command using the HTTPS URL and aws cli as a credential helper:
     ```sh
     cd ..
     repo_url=$(aws cloudformation describe-stacks --stack-name sk-stack --output text --query "Stacks[0].Outputs[?OutputKey=='RepoUrlHttp'].OutputValue")
@@ -229,18 +233,20 @@ These steps will create an initial deployement of `Sovereign Keys`. It will not 
     git commit -m "Initial commit"
     git push
     ```
-7. Wait for CodePipeline to works its magic, it will create the `Sovereign Keys` architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the `Sovereign Keys` architecture, see the see <a href="#architecture">Architecture</a> section.
+7. Wait for CodePipeline to work its magic, it will create the `Sovereign Keys` architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the `Sovereign Keys` architecture, see the see <a href="#architecture">Architecture</a> section.
     ```sh
-    # Each wait stack-exists is for max 100 seconds...
+    # Each "wait stack-exists" waits for max 100 seconds...
     aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-create-complete --stack-name cfn-sovereign-keys-mainstack
     ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Configure SSH on the Bastion instance
 
-THe next steps depends heavily on the usage of SSH on the Bastion instance. You SHOULD always use SSH to connect to the Bastion instead of Session Manager, especially when you are configuring secrets. Let's configure your Public SSH key on the bastion instance.
+The next sections and steps depend heavily on the usage of SSH on the Bastion instance. You SHOULD always use SSH to connect to the Bastion instead of Session Manager, especially when you are configuring secrets. Let's configure your Public SSH key on the bastion instance.
 
 If you don't have an SSH Keypair yet, please create one. For example:
 ```sh
@@ -299,20 +305,22 @@ If you plan on using Putty, that's fine but you are on your own for the configur
     bastion_ip=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].PublicIpAddress")
     ssh ec2-user@$bastion_ip
     ```
-    Note: It probably wont work from the Windows Bash subsystem because of the way file permission are handled.
+    Note: It probably won't work from the Windows Bash subsystem because of the way file permissions are handled.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### (Alternative 1) Adding a CloudHSM cluster
 
-This steps are only necessary if you plan on using CloudHSM as a backend, either for tests or for production.
+These steps are only necessary if you plan on using CloudHSM as a backend, either for tests or for production.
 
-The CloudHSM creation process is not entirely repeated in this document as it is very detailled by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of the steps.
+The CloudHSM creation process is not entirely repeated in this document as it is very detailed by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of the steps.
 
 1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API, in the private subnets:
     ```sh
     private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query Subnets[].SubnetId | xargs)
     aws cloudhsmv2 create-cluster --hsm-type hsm1.medium --subnet-ids $private_subnets
     ```
-    You can verity if it is created or not by describing all clusters (assuming you have only one)
+    You can verify if it is created or not by describing all clusters (assuming you have only one)
     ```sh
     aws cloudhsmv2 describe-clusters
     ```
@@ -330,13 +338,13 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")a
     ```
-3. At this point, you can retrieve the manufacter and the AWS root certificates. If it is for production use, you should verify the HSM identity ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/verify-hsm-identity.html))
+3. At this point, you can retrieve the manufacturer and the AWS root certificates and start verifying the authenticity of the HSM node. For production use, you should definitively do it ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/verify-hsm-identity.html)).
 4. Initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)). This step will yield the `customerCA.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/customerCA.crt`
 5. Copy the `customerCA.crt` on the bastion:
     ```sh
     scp customerCA.crt ec2-user@$bastion_ip:customerCA.crt
     ```
-6. SSH into the Bastion
+6. Verify the cluster is *INITIALIZED*, then SSH into the Bastion
 7. Configure the CloudHSM client:
     ```sh
     ####################################
@@ -365,6 +373,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     logoutHSM
     listUsers
     ```
+    Observe that `admin` is now *CO* instead of *PRECO*
 9. Still in the aws-cloudhsm prompt, create a new **CU** user for `Sovereign Keys` (doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/cli-users.html#manage-users)):
     ```sh
     ####################################
@@ -374,9 +383,10 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     loginHSM CO admin <your CO password previously created>
     createUser CU skuser <SKUserPassword>
     logoutHSM
+    listUsers
     quit
     ```
-    Store the credentials somewhere safe /!\ Those credentials will ultimately allow to manipulate `Sovereign Keys` cryptographic keys, therefore there are critical and must remain secret /!\
+    Observe that there is a new user `skuser` that is *CU* (Crypto User). Store the credentials somewhere safe /!\ Those credentials will ultimately allow to manipulate `Sovereign Keys` cryptographic keys, therefore there are critical and must remain secret /!\
 10. Close the bastion SSH session
     ```sh
     ####################################
@@ -389,16 +399,26 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")b
     ```
-12. Reconfigure SSL ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certicate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional. This step will yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
+12. Reconfigure SSL (doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certificate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional:
+    ```sh
+    openssl genrsa -out ssl-client.key 2048
+    ```
+    ```sh
+    openssl req -new -sha256 -key ssl-client.key -out ssl-client.csr
+    ```
+    ```sh
+    openssl x509 -req -days 3652 -in ssl-client.csr -CA customerCA.crt -CAkey customerCA.key -CAcreateserial -out ssl-client.crt
+    ```
+    This step yield the `ssl-client.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/ssl-client.crt`. Keep the `ssl-client.key` somewhere safe.
 
 Let's make a short pitstop here. After going through the CloudHSM cluster creation, you should have the retrieved the following pieces of information:
 - The Security Group of the CloudHSM cluster yield at step 1: `Cluster Security Group ID`
-- The certificate of the self-signed root CA created at step 5: `customerCA.crt`
-- The client certificate used to connect to the HSMs created at step 9: `ssl-client.crt`
-- The corresponding secret key also created at step 9: `ssl-client.key` (/!\ SECRET /!\\)
-- The `PIN` for the Crypto User (CU) created at step 8, which is a single value composed as follow: *\<cu-login>:\<cu-password>* (/!\ SECRET /!\\). For example, if you created the CU *sk-user* with a password *Password1* then the `PIN` is *sk-user:Password1*.
+- The certificate of the self-signed root CA created at step 4: `customerCA.crt`
+- The client certificate used to connect to the HSMs created at step 12: `ssl-client.crt`
+- The corresponding secret key also created at step 12: `ssl-client.key` (/!\ SECRET /!\\)
+- The `PIN` for the Crypto User (CU) created at step 9, which is a single value composed as follow: *\<cu-login>:\<cu-password>* (/!\ SECRET /!\\). For example, if you created the CU *skuser* with a password *Password1* then the `PIN` is *skuser:Password1*.
 
-If you miss any of the previous 5 pieces of information, please verify you followed every previous installation steps correctly.
+If you miss any of the previous 5 pieces of information, please verify you followed every previous installation step correctly.
 
 Some of those informations are not secrets and will be added to your CodeCommit repository:
 
@@ -416,7 +436,23 @@ Some of those informations are not secrets and will be added to your CodeCommit 
         }
     }
     ```
-16. Commit and push your modifications:
+16. Verify that you only have 3 modification to your repo and you are not pushing secrets by mistake:
+    ```sh
+    # Say you are at the root of the CodeCommit repository
+    $ git status
+    Changes not staged for commit:
+    (use "git add <file>..." to update what will be committed)
+    (use "git checkout -- <file>..." to discard changes in working directory)
+
+            modified:   main-configuration.json
+
+    Untracked files:
+    (use "git add <file>..." to include in what will be committed)
+
+            sovereign-instances/cloudhsm-conf/customerCA.crt
+            sovereign-instances/cloudhsm-conf/ssl-client.crt
+    ```
+17. Commit and push your modifications:
     ```sh
     # Say you are at the root of the CodeCommit repository
     git add .
@@ -424,6 +460,8 @@ Some of those informations are not secrets and will be added to your CodeCommit 
     git push
     ```
 The two secrets, the `PIN` and the `ssl-client.key`, obviously cannot be written into the repo (so **DON'T** write them into the repo). They will be used at the next stage of the installation.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### (Alternative 2) Going for an external Proteccio netHSM cluster
 
@@ -483,7 +521,7 @@ Some of those informations are not secrets and will be added to your CodeCommit 
         }
     }
     ```
-    Optionnaly, you can add the IP addresses of your Proteccio HSMs to scope down the `Sovereign Keys` instances proteccio Security Group. You MUST write the addresses in the /32 CIDR form and you can give up to 3 addresses (more will be processed the same as none). For example:
+    Optionally, you can add the IP addresses of your Proteccio HSMs to scope down the `Sovereign Keys` instances proteccio Security Group. You MUST write the addresses in the /32 CIDR form and you can give up to 3 addresses (more will be processed the same as none). For example:
     ```json
     {
         "Parameters": {
@@ -503,11 +541,17 @@ Some of those informations are not secrets and will be added to your CodeCommit 
     git push
     ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Finalizing the API installation
 
-Now is the time to make the `Sovereign Keys` API functional by giving it the secrets it needs. The final commit of the previous step will have created the `Sovereign Keys` instances with the relevant configurations. We will now use SSH to go on any instance of the cluster in order to push the client certificate private key `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend) and the `PIN`.
+Now is the time to make the `Sovereign Keys` API functional by giving it the secrets it needs.
 
-1. Connect to the bastion using SSH:
+The final commit of the previous step will have created the `Sovereign Keys` instances with the relevant non-secret configurations. We will now use SSH to go on any instance of the cluster and push the 2 missing secrets:
+- the client certificate private key `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend);
+- the `PIN`.
+
+1. Connect to the bastion **using SSH** (**DO NOT** use Session Manager for this steps):
     ```sh
     ################################
     # Executed on your local shell #
@@ -523,7 +567,7 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     sk_asg_instances=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-name asg-sovereign-keys-sovereign-instances)
     # Find an healthy instance that is in service
     sk_instance_id=$(echo $sk_asg_instances | jq -r '[.AutoScalingGroups[0].Instances[]|select(.LifecycleState=="InService" and .HealthStatus=="Healthy")][0].InstanceId')
-    # Connect using EC2 Instance Connnect (SSH with a temporary key)
+    # Connect using EC2 Instance Connect (SSH with a temporary key)
     echo "Connecting to $sk_instance_id"
     mssh $sk_instance_id
     ```
@@ -544,7 +588,7 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     # Remove the temporary key file
     rm -f /mnt/ram-store/tmp.key
     ```
-    `curl` should not return anything. If it returns something, it either means the API already has the key due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should probably go back to step 7.
+    `curl` should not return anything. If it returns something, it either means the API already has the key due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should go back to step 2 and try another instance.
 4. Then we give the password. In the following script, replace `<HSM PIN>` by the actual `PIN`:
     ```sh
     ##################################################
@@ -556,7 +600,7 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     # PUT the PIN in the API through the lo interface
     curl -H "Content-Type: application/json" -X PUT -d "{\"pin\":\"$HSM_PIN\"}" http://localhost:8080/hsm-pin
     ```
-    `curl` should not return anything. If it returns something, it either means the API already has the `PIN` due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should probably go back to step 7.
+    `curl` should not return anything. If it returns something, it either means the API already has the `PIN` due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should go back to step 2 and try another instance.
 5. Disconnect from the `Sovereign Keys` instance
     ```sh
     ##################################################
@@ -565,17 +609,19 @@ Now is the time to make the `Sovereign Keys` API functional by giving it the sec
     exit
     ```
 
-If you did not have any errors, congratulations: you have a working `Sovereign Keys` API cluster. The instances will exchange the secrets between them and keep them in their memory. From this point, you will not be able to connect to any of the instances anymore as a safety measure to prevent anyone to retrieve the secrets directly from the instances memory (after 15 seconds or so you can verify this fact by trying step 2 again).
+If you did not have any errors, congratulations: you have a working `Sovereign Keys` API cluster. The instances will exchange the secrets between them and keep them in their memory. From this point, you will not be able to connect to any of the instances anymore as a safety measure to prevent anyone from retrieving the secrets directly from the instances' memory (after 15 seconds or so, you can verify this fact by trying step 2 again).
 
 Note: These steps must be repeated each time a fresh `Sovereign Keys` API cluster is created, i.e. each time you change the `main-configuration.json` from ToggleMainResourceCreation=false to ToggleMainResourceCreation=true.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Configuring the customer agent
 
-Final step of our journey, configurating the customer agent so that we have a working RPM package to distribute and use. We need two informations for those final steps:
+Final step of our installation journey, configuring the customer agent so that we have a working RPM package to distribute and use. We need two informations for those final steps:
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
-1. Connect to the bastion using SSH (if you cannot, see steps 1 to 5 from <a href="#finalizing-the-api-installation">Finalizing the API installation</a>):
+1. Connect to the bastion using SSH:
     ```sh
     ################################
     # Executed on your local shell #
@@ -603,6 +649,7 @@ Final step of our journey, configurating the customer agent so that we have a wo
     $(echo $RES | jq -r .public_key)
     -----END PUBLIC KEY-----
     EOF
+    cat api_public_key.pem
     ```
 4. Exit the SSH session
     ```sh
@@ -644,7 +691,6 @@ Final step of our journey, configurating the customer agent so that we have a wo
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- USAGE EXAMPLES -->
-
 ## Usage
 
 Now that you have a working API, what can you do? Well, you can play with it using the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` that was created in the "dummy" customer VPC.
@@ -657,11 +703,13 @@ In any case, you can familiarize yourself with the basics of how it works on the
 
 You can use Session Manager to connect to the `ec2-sovereign-keys-test-customer-test-instance` EC2 instance.
 
-If you prefer another method, use Session Manager initialy to configure your prefered method.
+If you prefer another method, use Session Manager initially to configure your preferred method.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Validate the API is really working
 
-It can be usefull to convince yourself that the API is indeed behaving as expected. The script located at `utils/functional-testing.sh` in the repo does that.
+Before trusting your most-critical secrets to it, it can be useful to convince yourself that the API is indeed behaving as expected. The script located at `utils/functional-testing.sh` in the repo does that.
 
 It is also available in the HOME directory of `ec2-user` on the `ec2-sovereign-keys-test-customer-test-instance`. You can launch it from there.
 
@@ -686,10 +734,10 @@ It is also available in the HOME directory of `ec2-user` on the `ec2-sovereign-k
     Secrets match!!!
     TEST SUCCEED
     -rw-rw-r-- 1 ec2-user ec2-user 213 Aug 10 15:44 ec_pub_key.pem
-    -rw-rw-r-- 1 ec2-user ec2-user  92 Aug 10 15:44 enc_secret2.bin
-    -rw-rw-r-- 1 ec2-user ec2-user 102 Aug 10 15:44 enc_secret2.sig
     -rw-rw-r-- 1 ec2-user ec2-user  92 Aug 10 15:44 enc_secret.bin
-    -rw-rw-r-- 1 ec2-user ec2-user 103 Aug 10 15:44 enc_secret.sig
+    -rw-rw-r-- 1 ec2-user ec2-user 102 Aug 10 15:44 enc_secret.sig
+    -rw-rw-r-- 1 ec2-user ec2-user  92 Aug 10 15:44 enc_secret2.bin
+    -rw-rw-r-- 1 ec2-user ec2-user 103 Aug 10 15:44 enc_secret2.sig
     -rw-rw-r-- 1 ec2-user ec2-user  32 Aug 10 15:44 secret.bin
     -rw-rw-r-- 1 ec2-user ec2-user  32 Aug 10 15:44 secret_retrieve.bin
     -rw-rw-r-- 1 ec2-user ec2-user 512 Aug 10 15:44 wrap_secret1.bin
@@ -698,11 +746,15 @@ It is also available in the HOME directory of `ec2-user` on the `ec2-sovereign-k
     -rw-rw-r-- 1 ec2-user ec2-user 103 Aug 10 15:44 wrap_secret2.sig
     TEST SUCCEED
     ```
-    Note: Don't pay to much attention to the file sizes of the .sig files, they can vary slightly. As long as **TEST SUCCEED** is displayed, the test passed.
+    Note: Don't pay too much attention to the file sizes of the .sig files, they can vary slightly. As long as **TEST SUCCEED** is displayed, the test passed.
+
+The script is fairly well commented if you wish to understand how the tests are performed.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Install the Sovereign Keys agent
 
-For conveniance, the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` has an installation script that retrieve the rpm package and install it for you. It is located in the HOME directory of `ec2-user`:
+For convenience, the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` has an installation script that retrieves the rpm package and installs it for you. It is located in the HOME directory of `ec2-user`:
 
 ```sh
 #############################################
@@ -715,15 +767,20 @@ It should not display anything but you can test the installation was successful 
 #############################################
 # Executed on the Test instance as ec2-user #
 #############################################
+sk-chk-pubkey
+```
+```sh
 ec2-user$ sk-chk-pubkey
 Retrieve local version of the Revolve public signing key
 Retrieve remote version of the Revolve public signing key
 Keys are identical
 ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Manipulate a Sovereign Keys volume
 
-For conveniance, the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` has an additional small EBS volume on `/dev/sdf`:
+For convenience, the EC2 instance `ec2-sovereign-keys-test-customer-test-instance` has an additional small EBS volume on `/dev/sdf`:
 ```sh
 ec2-user$ ls -l /dev/sdf
 lrwxrwxrwx 1 root root 7 Aug 10 11:12 /dev/sdf -> nvme1n1
@@ -796,7 +853,9 @@ sudo sk-prep-dev /dev/sdf -a /mnt/data
 ```
 If `/mnt/data` does not exist, it will be created.
 
-The last one will probably tell you an error like **/dev/sdf already have partitions. Sovereign Keys can only prepare empty volumes**. This is because of our previous tests. We can overwrite the volume, **BECAUSE IT IS JUST A TEST AND THERE IS NO REAL DATA**:
+This last one probably gave you an error like **/dev/sdf already have partitions. Sovereign Keys can only prepare empty volumes**.
+
+This is because of our previous `sk-prep-dev`. **BECAUSE IT IS JUST A TEST AND THERE IS NO REAL DATA**, we can overwrite the volume:
 ```sh
 #############################################
 # Executed on the Test instance as ec2-user #
@@ -827,11 +886,13 @@ nvme1n1              259:0    0   5G  0 disk
 └─nvme1n1p128        259:5    0   1M  0 part
 ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Restoring a snapshot or an instance
 
-Say you have an instance with one or more SK volumes. And for some reason, the instance is gone. You had backup (either AMI of the entire instance or plain snapshots of the volumes) and now you want to retrieve your data. How does it work? Let see!
+Say you have an instance with one or more SK volumes. And for some reason, the instance is gone. You had backup (either AMI of the entire instance or plain snapshots of the volumes) and now you want to retrieve your data. How does it work? Let's see!
 
-We will do the exemple with an AMI, because that is less AWS heavy-lifting and it allow us to focus more on the `Sovereign Keys` part.
+We will do the example with an AMI, because that is less AWS heavy-lifting (switching volumes around, etc...) and it allows us to focus more on the `Sovereign Keys` part.
 
 1. Create an image of the EC2 instance `ec2-sovereign-keys-test-customer-test-instance`:
     ```sh
@@ -839,39 +900,42 @@ We will do the exemple with an AMI, because that is less AWS heavy-lifting and i
     ami_id=$(aws ec2 create-image --instance-id $test_instance_id --name "${test_instance_id}-$(date -u +%s)" --output text --query "ImageId")
     aws ec2 wait image-available --image-id $ami_id
     ```
-    Note: It is a best practice to write the Instance ID in the snapshot description or in a tag, because you need this information in order to recover the volume (see further). Snapshot made for AMI will automatically contains the source instance ID.
+    Note: It is a best practice to write the Instance ID in the snapshots description or in a tag, because you need this information in order to recover the volume (see further). Snapshots made for AMIs will automatically contain the source instance ID.
 2. Create a new instance from this image:
     ```sh
     subnet_id=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-test-customer-public-2" --output text --query Subnets[].SubnetId | xargs)
     aws ec2 run-instances --image-id $ami_id --subnet-id $subnet_id --iam-instance-profile 'Name=role-sovereign-keys-test-customer-instance' --instance-type t3.micro --associate-public-ip-address --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=ec2-sovereign-keys-test-customer-test-instance-restored}]'
     ```
-3. Connect to the restored instance using Session Manager and go root:
+3. Connect to the restored instance called `ec2-sovereign-keys-test-customer-test-instance-restored` using Session Manager and go root:
     ```sh
-    #############################################
-    # Executed on the Test instance as ssm-user #
-    #############################################
+    ######################################################
+    # Executed on the Test Restored instance as ssm-user #
+    ######################################################
     sudo su
     cd
     ```
-4. Try to mount the SK volume. As we got a perfect image of the initial instance, we can call the `sk-automount` that will conveniently loop through the configured SK volumes and mount them:
+4. Try to mount the SK volume. As we got a perfect clone of the initial instance, we can call the `sk-automount` command and it will loop through the configured SK volumes and mount them:
     ```sh
-    #########################################
-    # Executed on the Test instance as root #
-    #########################################
+    ##################################################
+    # Executed on the Test Restored instance as root #
+    ##################################################
+    sk-automount
+    ```
+    ```sh
     root# sk-automount
     Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
     Asking Revolve Sovereign Key API to decrypt the secret...       NOK
     Cleaning up...
     ```
-    Damn! It does not work, the `Sovereign Keys` API did not decrypt the secret... Why? Because the secret we have is owned by the instance ID of `ec2-sovereign-keys-test-customer-test-instance`, and we don't have the same on `ec2-sovereign-keys-test-customer-test-instance-restored`. We need to take ownership of the secret first
+    Damn! It does not work, the `Sovereign Keys` API refused to decrypt the secret... Why? Because the secret we have is owned by the instance ID of `ec2-sovereign-keys-test-customer-test-instance`, and we don't have the same on `ec2-sovereign-keys-test-customer-test-instance-restored`. We need to take ownership of the secret first!
 5. Take ownership of the secret using sk-takeown and giving the instance ID of `ec2-sovereign-keys-test-customer-test-instance`:
     ```sh
-    #########################################
-    # Executed on the Test instance as root #
-    #########################################
+    ##################################################
+    # Executed on the Test Restored instance as root #
+    ##################################################
     sk-takeown -i <orig_instance_id> /dev/sdf
     ```
-    For exemple, my original test instance had the ID *i-095af01fb0461e052*:
+    For example, my original test instance had the ID *i-095af01fb0461e052*:
     ```sh
     sk-takeown -i i-095af01fb0461e052 /dev/sdf
     Asking Revolve Sovereign Key API to convert the secret...               OK
@@ -880,12 +944,15 @@ We will do the exemple with an AMI, because that is less AWS heavy-lifting and i
     Cleaning up...
     Success
     ```
-    It tells me that the convertion was successful. Let's try the automount again...
+    It tells me that the conversion was successful. Let's try the automount again...
 6. Mount the SK volume:
     ```sh
-    #########################################
-    # Executed on the Test instance as root #
-    #########################################
+    ##################################################
+    # Executed on the Test Restored instance as root #
+    ##################################################
+    sk-automount
+    ```
+    ```sh
     root# sk-automount
     Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
     Asking Revolve Sovereign Key API to decrypt the secret...       OK
@@ -897,9 +964,9 @@ We will do the exemple with an AMI, because that is less AWS heavy-lifting and i
     ```
     This time we have our data back!
     ```sh
-    #############################################
-    # Executed on the Test instance as ec2-user #
-    #############################################
+    ######################################################
+    # Executed on the Test Restored instance as ec2-user #
+    ######################################################
     ec2-user$ ls -lh /mnt/data
     total 4.0K
     -rw-rw-r-- 1 ec2-user ec2-user 58 Aug 10 14:17 secret.txt
@@ -907,23 +974,29 @@ We will do the exemple with an AMI, because that is less AWS heavy-lifting and i
     This is a super critically important piece of information
     ```
 
-That's great. But wait a minute. Any instance can "takeown" the secret of anyother? Well, if the instances both belong to the same customer then **yes**, providing the wannabe-owner instance have access to the original instance volume. Three things are important to note on this mechanism:
-- First, it is necessary: there HAVE to be some way for an instance to claim anotherone's secret as its own, else loosing an instance would mean loosing the data;
-- Second, know that taking own of a secret generate a new "version" of the secret but **DOES NOT** invalidate the original version;
+That's great. But hey wait a minute.
+
+Any instance can "takeown" the secret of another? Well, if the instances both belong to the same customer then **yes**, providing the wannabe-owner instance has access to the original instance volume.
+
+Three things are important to note about this mechanism:
+- First, it is necessary: there HAVE to be some way for an instance to claim anotherone's secret as its own, else losing an instance would mean losing the data;
+- Second, know that taking ownership of a secret generate a new "version" of the secret but **DOES NOT** invalidate the original version;
 - Third, all of that is traced and auditable.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Auditing what's happening
 
-**Every** call that reach the `Sovereign Keys` API instances is traced in tamper-proof, enumerated log files. Not every calls reach the API instances though. For example, a malicious call attempting to impersonate another instance would not even pass the Private API Gateway performing the authentication (see the <a href="#architecture">Architecture</a> section).
-But every calls reaching the API instances are logged.
+**Each** call asking for operation on secrets that reach the `Sovereign Keys` API instances is traced in tamper-proof, enumerated log files. Not every call reaches the API instances though. For example, a malicious call attempting to impersonate another instance would not even pass the Private API Gateway performing the authentication (see the <a href="#architecture">Architecture</a> section).
+But every call reaching the API instances is logged.
 
-`Sovereign Keys` itself keep a copy of all the log files. Addtionnaly, each customer may have a specific audit bucket configured and, in that case, will receive the logs as well.
+`Sovereign Keys` itself keeps a copy of all the log files. Additionally, each customer may have a specific audit bucket configured and, in that case, will receive the logs as well.
 
-For instance, the "dummy" customer created by default for test purposes have an audit-bucket configured. You can go in S3 and browse it, and you will find logs inside "VPC" folders:
+In fact, the "dummy" customer created by default for test purposes has an audit-bucket configured. You can go in S3 and browse it, and you will find logs inside "VPC" folders:
 
 ![Screenshot Audit bucket](images/screenshot-audit-bucket.png)
 
-You can see they are *json* files with a sequence number. You can also see that there is no gap in the sequence: **a gap would indicate a log file has been removed** (or that you completly detroyed your `Sovereign Keys` API cluster which mean loosing the counters).
+You can see they are *json* files with a sequence number. You can also see that there is no gap in the sequence: **a gap would indicate a log file has been removed** (or that you completely destroyed your `Sovereign Keys` API cluster which means losing the counters).
 
 You can use [Amazon Athena](https://aws.amazon.com/athena/) or your own SIEM to use the logs. You can also, of course, download them manually from S3 but that is not practical.
 
@@ -1037,7 +1110,7 @@ Then we called `convert-secret`:
   "signature": "MGUCMQDxxhyaDdefhPgpvkC+2NDXBEC2YSNMHtLPXRhmxRik+EQgYAnXvFexNFrYN1ov4UwCMBvSSoZqcMhPvRDL0PGDNpD9Mrtb+CBxnx5Kll+5ZgEhvcm6czlC1OTH3kjyL4ClXg=="
 }
 ```
-Which led to a succesful `decrypt-secret`:
+Which led to a successful `decrypt-secret`:
 ```json
 {
   "event_version": 1,
@@ -1068,11 +1141,13 @@ Note: The *vpc_op_seq_num* fields do not always follow each other because I did 
 
 You can see that each log entry is fairly detailed. And each one is **signed** by `Sovereign Keys` using a private key that **CANNOT** leave the backend HSMs, which gives you a very strong proof that the log you see is indeed an authentic, non-altered one created by `Sovereign Keys`.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Validating signatures
 
 If you want to validate the signatures (you SHOULD!!), you can find a Python script that can separate a json log into the serialized, signed content and the signature file at `utils/log_file_extraction.py`. You will also need to have a copy of the `Sovereign Keys Public Signing Key` (`api_public_key.pem`) that you retrieved at step 2 of the <a href="#configuring-the-customer-agent">Configuring the customer agent</a> section and `openssl`.
 
-Note: don't try to validate the signature of the examples, they are wrong because the aws_account_id field has been alterated
+Note: don't try to validate the signature of the examples, they are wrong because the aws_account_id field has been altered.
 
 Say you have *000000016.json* and you want to verify its signature.
 1. You use `log_file_extraction.py` to extract the serialized, signed content and the signature:
@@ -1116,6 +1191,8 @@ Rest assured, destroying is always easier and quicker than creating ;)
 
 Note that the bastion will be kept running, you can shut it down manually if you wish (it costs $3/month).
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### It is tomorrow, how do I get things back?
 
 1. Create at least one HSM in the cluster. Assuming you have only one cluster:
@@ -1139,7 +1216,9 @@ Note that the bastion will be kept running, you can shut it down manually if you
     ```
 6. Wait for the `Sovereign Keys` API cluster to be created, then redo the steps of <a href="#finalizing-the-api-installation">Finalizing the API installation</a> 
 
-### I want to detroy everything
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+### I want to destroy everything
 
 1. Remove the HSM nodes of your cluster. Assuming there is only one cluster:
     ```sh
@@ -1166,6 +1245,8 @@ Note that the bastion will be kept running, you can shut it down manually if you
     aws cloudformation delete-stack --stack-name sk-stack
     ```
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 <!-- ARCHITECTURE -->
 # Architecture
 
@@ -1184,6 +1265,8 @@ A more "real" architecture would look like this:
 ![Architecture Overview](images/architecture-overview.png)
 
 It is quite the same, but it shows the fact that multiple VPCs in multiple AWS accounts can use the `Sovereign Keys` API. Also, for a production environment you might not want NAT instances giving Internet access to the API instances but instead use VPC endpoints to only enable the communication with the necessary AWS services.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Functional Design
 `Sovereign Keys` is a system that provide EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefore encrypted at the OS level and data written on the volume never leave the instance in clear-text. This is slightly different from what happen with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that perform the encryption/decryption process. The `Sovereign Keys` system can be devided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
@@ -1231,6 +1314,8 @@ A `Customer Master Key` can only exist in clear-text form inside the HSM. But, a
 
 An `Instance Secret` can exist in clear text in the HSM and in the customer instance RAM. Indeed, the operating System need to know the secret to be able to encrypt/decrypt the EBS volumes. However, the `Instance Secret` is only stored on the instance volume in its wrapped (encrypted) form. `Sovereign Keys` is a mandatory waypoint to retrieve the `Instance Secret` from its wrapped form because it is wrapped using the `Customer Master Key`, which can only be used inside `Sovereign Keys` HSMs.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ## Customer instance interactions with Sovereign Keys
 
 Awesome! We know have a good view of the key hierarchy and the key residency. But how does `Sovereign Keys` manages to give the customer instance its `Instance Secret` securely? Indeed, the customer instance **CANNOT** retrieve the `Instance Secret` directly from its wrapped form, only `Sovereign Keys` HSMs can do that. And so we come to the topic of the interactions between `Sovereign Keys` and customer instances. We will not dive to deep, here we just want to get an idea of how it works.
@@ -1253,6 +1338,8 @@ When the customer instance asks for a new secret or to decrypt an existing one, 
 
 If those conditions are all valid, `Sovereign Keys` considers the instance authenticated.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Authorize
 
 There is no conventional authorization mechanism implemented in `Sovereign Keys`. This is because the `Instance Secret` is cryptographically linked to an instance ID. Technically, it means that when we first wrap the `Instance Secret` with the `Customer Master Key`, we insert the requesting instance ID in the AES256-GCM Additional Authenticated Data. The way AES256-GCM is implemented guarantees that the HSM will **refuse** to unwrap the `Instance Secret` if `Sovereign Keys` does not provide the exact same Additional Authenticated Data that where provided for the previous wrap operation.
@@ -1262,6 +1349,8 @@ Therefore, if a customer instance tries to ask `Sovereign Keys` to decrypt a sec
 - the "rogue" customer instance include its own instance ID in the decrypt call, in that case the authentication will succeed but the AES256-GCM Additional Authenticated Data will no longer be correct and the decryption will fail in the HSM.
 
 If you **DO** want to transfer the "ownership" of an `Instance Secret` from one instance to another (e.g. to restore a snapshot to another EC2 instance), there is a special `Sovereign Keys` API call specifically for this operation that will be properly traced in the audit logs.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Transmit
 
@@ -1273,17 +1362,23 @@ For exemple, when the customer instance wants to decrypt an existing `Instance S
 
 It is quite similar in principle when `Sovereign Keys` generates and return a new `Instance Secret`.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Sequence diagram: Init drive encryption
 
 As additionnal informations, here is a sequence diagram of what happen when a customer instance request a new `Instance Secret`:
 
 ![Init drive encryption](images/seq-diag-init-encryption.png)
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ### Sequence diagram: Unlock drive
 
 As additionnal informations, here is a sequence diagram of what happen when a customer instance asks to decrypt its existing `Instance Secret`:
 
 ![Unlock Volume](images/seq-diag-unlock-vol.png)
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ### Are those interactions secured against the Cloud provider?
 
@@ -1319,16 +1414,12 @@ Don't forget to give the project a star! Thanks again!
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-
-
 <!-- LICENSE -->
 # License
 
 No license for now. No one can legally use this code.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
-
 
 <!-- CONTACT -->
 # Contact
@@ -1339,8 +1430,6 @@ If you wish to make a suggestion or a feature request, see the [open issues](htt
 Project Link: [https://github.com/d2si/sovereign-keys](https://github.com/d2si/sovereign-keys)
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
-
 
 <!-- ACKNOWLEDGMENTS -->
 # Acknowledgments
