@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: The API
+Description: The DynamoDB table, S3 EKT bucket and S3 Audit bucket
 
 Parameters:
   GloballyUniqueCompanyIdentifier:
