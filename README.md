@@ -624,6 +624,8 @@ Final step of our installation journey, configuring the customer agent so that w
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
+Before starting these steps, verify that the `cfn-sovereign-keys-mainstack` finished its previous updates.
+
 1. Connect to the bastion using SSH:
     ```sh
     ################################
@@ -666,7 +668,7 @@ Final step of our installation journey, configuring the customer agent so that w
     ################################
     # Executed on your local shell #
     ################################
-    scp ec2-user@<bastion-public-ip>:api_public_key.pem .
+    scp ec2-user@$bastion_ip:api_public_key.pem .
     ```
 6. Copy `api_public_key.pem` in the CodeCommit repository at `agent/linux/sources/etc/sovereign-keys/api_public_key.pem` (override the existing placeholder). For example, the content should look similar to this:
     ```
@@ -1245,7 +1247,7 @@ Note that the bastion will be kept running, you can shut it down manually if you
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-audit-logs
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-customer-audit-logs
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-ekt **/!\ HUGE WARNING HERE /!\\**: emptying this bucket is the same thing as deleting every SK volumes and their snapshots. If you are in a production environment, **you DON'T WANT TO DO THAT**.
-6. Remove the CloudHSM cluster Security Group from the Bastion isntance
+6. Remove the CloudHSM cluster Security Group from the Bastion instance
 7. Delete the CloudHSM cluster Security Group, as it will prevent the VPC removal 
 8. Terminate the `ec2-sovereign-keys-test-customer-test-instance-restored`, as it will prevent the "dummy" customer VPC removal
 9. Delete the AMI and snapshots created during the tests
