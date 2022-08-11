@@ -1159,6 +1159,7 @@ Note that the bastion will be kept running, you can shut it down manually if you
 5. Delete the `Sovereign Keys` architecture stack:
     ```sh
     aws cloudformation delete-stack --stack-name cfn-sovereign-keys-mainstack
+    aws cloudformation wait stack-delete-complete --stack-name cfn-sovereign-keys-mainstack
     ```
 6. Delete the `Sovereign Keys` pipeline stack:
     ```sh
