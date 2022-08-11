@@ -183,7 +183,7 @@ If you just want to make a test, just be sure to shutdown your HSM **nodes** (**
 Every CLI commands given in those installation steps work under the following conditions:
 - you are running them in an environment **configured with credentials for the AWS account** you want to use, with the **target region as a default**;
 - you don't change the value of the ProjectName when you create the `Sovereign Keys` CloudFormation stack;
-- you use a Linux bash or the Windows Bash subsystem.
+- you use a Linux **bash** or the **Windows Bash subsystem**.
 
 The default AWS region for the CLI can be configured like this:
 ```sh
