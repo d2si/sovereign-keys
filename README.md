@@ -132,14 +132,14 @@ Currently, `Sovereign Keys` supports the following Hardware Security Module (HSM
 - [AWS CloudHSM (v2)](https://aws.amazon.com/cloudhsm/)
 - [Atos (Bull) Trustway Proteccio netHSM](https://atos.net/en/solutions/cyber-security/data-protection-and-governance/hardware-security-module-trustway-proteccio-nethsm)
 
-Additional HSMs can be supported but will require additional code. `Sovereign Keys` use the widely implemented [PKCS#11](https://en.wikipedia.org/wiki/PKCS_11) standard to communicate with the HSMs, but unfortunately each vendor has some specifics in its implementation so it is not possible to simply "plug" any HSM.
+Additional HSMs can be supported but will require additional code. `Sovereign Keys` use the widely implemented [PKCS#11](https://en.wikipedia.org/wiki/PKCS_11) standard to communicate with the HSMs, but unfortunately each vendor has some specifics in its implementation, so it is not possible to simply "plug" any HSM.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 <!-- GETTING STARTED -->
 # Getting Started
 
-Here are the instructions allowing you to setup and use `Sovereign Keys` in your own AWS account or AWS Organization.
+Here are the instructions allowing you to set up and use `Sovereign Keys` in your own AWS account or AWS Organization.
 
 ## Prerequisites
 
@@ -256,7 +256,7 @@ Then you can print your public key:
 ```sh
 cat ~/.ssh/id_rsa.pub
 ```
-If you plan on using Putty, that's fine but you are on your own for the configurations (though it is by and large the same logic).
+If you plan on using Putty, that's fine, but you are on your own for the configurations (though it is by and large the same logic).
 
 1. Find the bastion EC2 instance that has been created in the `Sovereign Keys` API VPC. It is named `ec2-sovereign-keys-api-bastion`, you can find it in the EC2 Console or via the CLI:
     ```sh
@@ -316,7 +316,7 @@ If you plan on using Putty, that's fine but you are on your own for the configur
 
 These steps are only necessary if you plan on using CloudHSM as a backend, either for tests or for production.
 
-The CloudHSM creation process is not entirely repeated in this document as it is very detailed by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of the steps.
+The CloudHSM creation process is not entirely repeated in this document as it is very detailed by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of these steps.
 
 1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API, in the private subnets:
     
@@ -430,7 +430,7 @@ Let's make a short pitstop here. After going through the CloudHSM cluster creati
 
 If you miss any of the previous 5 pieces of information, please verify you followed every previous installation step correctly.
 
-Some of those informations are not secrets and will be added to your CodeCommit repository:
+Some of this information is not secret and will be added to your CodeCommit repository:
 
 13. Copy the `customerCA.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/customerCA.crt`
 14. Copy the `ssl-client.crt` in the CodeCommit repository: `sovereign-instances/cloudhsm-conf/ssl-client.crt`
@@ -487,7 +487,7 @@ In order to be able to continue the installation using Proteccio netHSMs, you mu
 - The corresponding secret key: `client.key` (/!\ SECRET /!\\);
 - The PIN of the Crypto User (CU) `PIN` (/!\ SECRET /!\\).
 
-Some of those informations are not secrets and will be added to your CodeCommit repository:
+Some of this information is not secret and will be added to your CodeCommit repository:
 
 1. Upload the binary and libraries in the S3 Artifact bucket of the CodePipeline:
     ```sh
@@ -560,14 +560,14 @@ The final commit of the previous step will have created the `Sovereign Keys` ins
 - the client certificate private key `ssl-client.key` (or `client.key` if you are using a Proteccio netHSM backend);
 - the `PIN`.
 
-1. Connect to the bastion **using SSH** (**DO NOT** use Session Manager for this steps):
+1. Connect to the bastion **using SSH** (**DO NOT** use Session Manager for these steps):
     ```sh
     ################################
     # Executed on your local shell #
     ################################
     ssh ec2-user@$bastion_ip
     ```
-2. **Assuming the `Sovereign Keys` instances had time to appear**, connect to an healthy one using EC2 Instance Connect from the bastion:
+2. **Assuming the `Sovereign Keys` instances had time to appear**, connect to a healthy one using EC2 Instance Connect from the bastion:
     ```sh
     ####################################
     # Executed on the Bastion instance #
@@ -626,7 +626,7 @@ Note: These steps must be repeated each time a fresh `Sovereign Keys` API cluste
 
 ### Configuring the customer agent
 
-Final step of our installation journey, configuring the customer agent so that we have a working RPM package to distribute and use. We need two informations for those final steps:
+Final step of our installation journey, configuring the customer agent so that we have a working RPM package to distribute and use. We need two information for those final steps:
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
@@ -773,7 +773,7 @@ For convenience, the EC2 instance `ec2-sovereign-keys-test-customer-test-instanc
 #############################################
 ./install-sk-agent.sh
 ```
-It should not display anything but you can test the installation was successful by running an sk command:
+It should not display anything, but you can test the installation was successful by running a sk command:
 ```sh
 #############################################
 # Executed on the Test instance as ec2-user #
@@ -1040,7 +1040,7 @@ When I created my SK volume, there was first a `generate-secret`:
   "signature": "MGYCMQDRtPd2kHMS8XkDFbqB5YI//W13JojR0dlRK+EPykK7x7EIMghtuFalgNAdciHdNloCMQCni3a0A3gm6IaLQLyjs83J73HzBBlmsDOb9szXUMREpP+T0m4R6CywGPvg2W++gHE="
 }
 ```
-Then I rebooted the instance and it need to call `decrypt-secret` in order to unlock the volume:
+Then I rebooted the instance and it needs to call `decrypt-secret` in order to unlock the volume:
 ```json
 {
   "event_version": 1,
@@ -1302,11 +1302,11 @@ Note that AWS KMS is present on the schema only to underline how it differs from
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Cryptographic security
-The design choice for `Sovereign Keys` is that **all the cryptographic operations are performed by the HSM, in the HSM, and no customer secret of any kind are ever handled in cleartext by the `Sovereign Keys` API itself**. Random Numbers generation is also made by the HSM so we can have true randomness. Moreover, every cryptographic algorithm used by `Sovereign Keys` are recommended by the NIST (National Institute of Standards and Technology) and the French ANSSI (Agence Nationale de Securité des Systèmes d'Information) and used within the boundaries of their approbation.
+The design choice for `Sovereign Keys` is that **all the cryptographic operations are performed by the HSM, in the HSM, and no customer secret of any kind are ever handled in cleartext by the `Sovereign Keys` API itself**. Random Numbers generation is also made by the HSM, so we can have true randomness. Moreover, every cryptographic algorithm used by `Sovereign Keys` are recommended by the NIST (National Institute of Standards and Technology) and the French ANSSI (Agence Nationale de Securité des Systèmes d'Information) and used within the boundaries of their approbation.
 
 This approach greatly reduce the risks of leaking secrets at multiple levels:
-- side-channel attacks performed by AWS on the cryptographic operations are not possible, especially if you use HSMs hosted outside of the Cloud;
-- the compromission of the API itself is less likely to lead to secrets being leaked;
+- side-channel attacks performed by AWS on the cryptographic operations are not possible, especially if you use HSMs hosted outside a Cloud environment;
+- the compromising of the API itself is less likely to lead to secrets being leaked;
 - we leave the care to correctly handle cryptographic algorithms to specialized hardware which reduces the chances of faulty implementation.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -1322,7 +1322,7 @@ The key hierarchy has 3 levels:
 - A `Customer Master Key`, which is the top level key for a specific customer;
 - An `Instance Secret`, which is specific to a specific instance (and a specific volume).
 
-The `Domain Key` protects the `Customer Master Keys` which in turn protects the `Instance Secrets`. This is a fairly common key hierarchy which we can be represent on a diagram:
+The `Domain Key` protects the `Customer Master Keys` which in turn protects the `Instance Secrets`. This is a fairly common key hierarchy which we can be represented on a diagram:
 
 You can see on this diagram that there are also unnamed, intermediate, derived keys for the `Domain Key` and for the `Customer Master Key`. From a functional standpoint, this can be ignored. It has to do with the cryptographic choice made by `Sovereign Keys`: the wrapping is done using [AES256-GCM](https://en.wikipedia.org/wiki/Galois/Counter_Mode). AES256-GCM is believed to be secure and provides the additional perk that it allows integrity checks natively as well as "Additional Authenticated Data" which we use as part of our authorization mechanism. But AES-GCM fails catastrophically if you ever encrypt different data with the same Initialisation Vector. We will not dive too deep, but just know that using a one-time derived key rather than directly the static key is a good way to avoid that pitfall. The precise derivation mechanism is not on the diagram because it depends on the particular HSM backend used by `Sovereign Keys` (they don't offer the same mechanisms).
 
@@ -1388,7 +1388,7 @@ It is quite similar in principle when `Sovereign Keys` generates and returns a n
 
 ### Sequence diagram: Init drive encryption
 
-As additional informations, here is a sequence diagram of what happen when a customer instance request a new `Instance Secret`:
+As additional information, here is a sequence diagram of what happen when a customer instance request a new `Instance Secret`:
 
 ![Init drive encryption](images/seq-diag-init-encryption.png)
 
@@ -1396,7 +1396,7 @@ As additional informations, here is a sequence diagram of what happen when a cus
 
 ### Sequence diagram: Unlock drive
 
-As additional informations, here is a sequence diagram of what happen when a customer instance asks to decrypt its existing `Instance Secret`:
+As additional information, here is a sequence diagram of what happen when a customer instance asks to decrypt its existing `Instance Secret`:
 
 ![Unlock Volume](images/seq-diag-unlock-vol.png)
 
