@@ -1479,6 +1479,8 @@ Bigup to the people that help building `Sovereign Keys`:
 
 * Jérémie RODON - [@JeremieRodon](https://twitter.com/JeremieRodon) - jeremie@revolve.team
 
+Thanks to Guillaume C ([@guillaume-gc](https://github.com/guillaume-gc)) for kindly correcting the README.
+
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 
