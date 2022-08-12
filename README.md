@@ -205,7 +205,7 @@ These steps will create an initial deployment of `Sovereign Keys`. It will not b
     git clone https://github.com/d2si/sovereign-keys.git
     cd sovereign-keys
     ```
-2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-west-3 and eu-west-1 have been tested, but it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
+2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-central-1, eu-west-3 and eu-west-1 are supported, and it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
     ```sh
     # Say you are at the root of the cloned repo
     aws cloudformation create-stack --stack-name sk-stack --template-body file://pipeline-template.yml --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=GloballyUniqueCompanyIdentifier,ParameterValue=<YourIdentifier>
@@ -260,7 +260,7 @@ If you plan on using Putty, that's fine, but you are on your own for the configu
 
 1. Find the bastion EC2 instance that has been created in the `Sovereign Keys` API VPC. It is named `ec2-sovereign-keys-api-bastion`, you can find it in the EC2 Console or via the CLI:
     ```sh
-    aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].InstanceId"
+    aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" "Name=instance-state-name,Values=running" --output text --query "Reservations[0].Instances[0].InstanceId"
     ```
 2. Connect to the bastion using Session Manager. Again, you can do it through the Console or the CLI if you have it pre-configured.
 3. You are logged as `ssm-user`, go `root`:
@@ -306,7 +306,7 @@ If you plan on using Putty, that's fine, but you are on your own for the configu
     ```
 7. Test you can SSH into the bastion:
     ```sh
-    bastion_ip=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].PublicIpAddress")
+    bastion_ip=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" "Name=instance-state-name,Values=running" --output text --query "Reservations[0].Instances[0].PublicIpAddress")
     ssh ec2-user@$bastion_ip
     ```
 
@@ -319,9 +319,16 @@ These steps are only necessary if you plan on using CloudHSM as a backend, eithe
 The CloudHSM creation process is not entirely repeated in this document as it is very detailed by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of these steps.
 
 1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API, in the private subnets:
+    
+    With bash or Windows Bash Subsystem:
     ```sh
     private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query "Subnets[].SubnetId" | xargs)
     aws cloudhsmv2 create-cluster --hsm-type hsm1.medium --subnet-ids $private_subnets
+    ```
+    With zsh:
+    ```zsh
+    private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query "Subnets[].SubnetId" | xargs)
+    aws cloudhsmv2 create-cluster --hsm-type hsm1.medium --subnet-ids ${=private_subnets}
     ```
     You can verify if it is created or not by describing all clusters (assuming you have only one)
     ```sh
@@ -331,7 +338,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     ```sh
     cluster_sg=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].SecurityGroup")
     echo "CloudHSM Cluster Security Group ID: $cluster_sg"
-    bastion_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" --output text --query "Reservations[0].Instances[0].InstanceId")
+    bastion_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-api-bastion" "Name=instance-state-name,Values=running" --output text --query "Reservations[0].Instances[0].InstanceId")
     bastion_current_sgs=$(aws ec2 describe-instances --instance-id $bastion_id --output text --query "Reservations[0].Instances[0].SecurityGroups[*].GroupId" | xargs)
     bastion_new_sgs="$bastion_current_sgs $cluster_sg"
     aws ec2 modify-instance-attribute --instance-id $bastion_id --groups $bastion_new_sgs
@@ -345,7 +352,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
 4. Initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)). This step will yield the `customerCA.crt` certificate that you must copy in the CodeCommit repo: `sovereign-instances/cloudhsm-conf/customerCA.crt`
 5. Copy the `customerCA.crt` on the bastion:
     ```sh
-    scp customerCA.crt ec2-user@$bastion_ip:customerCA.crt
+    scp customerCA.crt ec2-user@$bastion_ip:~/customerCA.crt
     ```
 6. Verify the cluster is *INITIALIZED*, then SSH into the Bastion
 7. Configure the CloudHSM client:
@@ -402,7 +409,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")b
     ```
-12. Reconfigure SSL (doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certificate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional:
+12. Create a client certificate and key that will be signed by the `customerCA.crt` created at step 4. It **IS mandatory** for `Sovereign Keys` to use a client certificate when connecting to its backend HSMs:
     ```sh
     openssl genrsa -out ssl-client.key 2048
     ```
@@ -560,7 +567,7 @@ The final commit of the previous step will have created the `Sovereign Keys` ins
     ################################
     ssh ec2-user@$bastion_ip
     ```
-2. Assuming the `Sovereign Keys` instances had time to appear, connect to a healthy one using EC2 Instance Connect from the bastion:
+2. **Assuming the `Sovereign Keys` instances had time to appear**, connect to a healthy one using EC2 Instance Connect from the bastion:
     ```sh
     ####################################
     # Executed on the Bastion instance #
@@ -623,7 +630,7 @@ Final step of our installation journey, configuring the customer agent so that w
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
-Before starting these steps, verify that the `cfn-sovereign-keys-mainstack` finished its previous updates.
+**Before starting these steps, verify that the `cfn-sovereign-keys-mainstack` finished its previous updates**.
 
 1. Connect to the bastion using SSH:
     ```sh
@@ -667,7 +674,7 @@ Before starting these steps, verify that the `cfn-sovereign-keys-mainstack` fini
     ################################
     # Executed on your local shell #
     ################################
-    scp ec2-user@$bastion_ip:api_public_key.pem .
+    scp ec2-user@$bastion_ip:~/api_public_key.pem .
     ```
 6. Copy `api_public_key.pem` in the CodeCommit repository at `agent/linux/sources/etc/sovereign-keys/api_public_key.pem` (override the existing placeholder). For example, the content should look similar to this:
     ```
@@ -900,7 +907,7 @@ We will do the example with an AMI, because that is less AWS heavy-lifting (swit
 
 1. Create an image of the EC2 instance `ec2-sovereign-keys-test-customer-test-instance`:
     ```sh
-    test_instance_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-test-customer-test-instance" --output text --query "Reservations[0].Instances[0].InstanceId")
+    test_instance_id=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=ec2-sovereign-keys-test-customer-test-instance" "Name=instance-state-name,Values=running" --output text --query "Reservations[0].Instances[0].InstanceId")
     ami_id=$(aws ec2 create-image --instance-id $test_instance_id --name "${test_instance_id}-$(date -u +%s)" --output text --query "ImageId")
     aws ec2 wait image-available --image-id $ami_id
     ```
@@ -927,7 +934,7 @@ We will do the example with an AMI, because that is less AWS heavy-lifting (swit
     ```
     ```sh
     root# sk-automount
-    Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
+    Invoking: sk-mount --ignore-nitro-check /dev/sdf /mnt/data
     Asking Revolve Sovereign Key API to decrypt the secret...       NOK
     Cleaning up...
     ```
@@ -958,7 +965,7 @@ We will do the example with an AMI, because that is less AWS heavy-lifting (swit
     ```
     ```sh
     root# sk-automount
-    Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
+    Invoking: sk-mount --ignore-nitro-check /dev/sdf /mnt/data
     Asking Revolve Sovereign Key API to decrypt the secret...       OK
     Verifying the signature of the wrapped secret...                OK
     Unwrapping the wrapped version of the secret...                 OK
