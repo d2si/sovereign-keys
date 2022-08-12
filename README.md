@@ -205,7 +205,7 @@ These steps will create an initial deployment of `Sovereign Keys`. It will not b
     git clone https://github.com/d2si/sovereign-keys.git
     cd sovereign-keys
     ```
-2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-west-3 and eu-west-1 have been tested but it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
+2. Use the `pipeline-template.yml` CloudFormation template file at the repo root to create a new stack in your AWS account, making sure you are in the intended region (eu-central-1, eu-west-3 and eu-west-1 are supported, and it should work in most regions). You can do it using the AWS console or via CLI, replace `<YourIdentifier>` by the prefix you use in your S3 bucket names:
     ```sh
     # Say you are at the root of the cloned repo
     aws cloudformation create-stack --stack-name sk-stack --template-body file://pipeline-template.yml --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=GloballyUniqueCompanyIdentifier,ParameterValue=<YourIdentifier>
@@ -409,7 +409,7 @@ The CloudHSM creation process is not entirely repeated in this document as it is
     cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")b
     ```
-12. Reconfigure SSL (doc ref: [AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/getting-started-ssl.html)) to create a new client certificate and key. It **IS mandatory** for `Sovereign Keys` to work even if the CloudHSM documentation deems it optional:
+12. Create a client certificate and key that will be signed by the `customerCA.crt` created at step 4. It **IS mandatory** for `Sovereign Keys` to use a client certificate when connecting to its backend HSMs:
     ```sh
     openssl genrsa -out ssl-client.key 2048
     ```
@@ -567,7 +567,7 @@ The final commit of the previous step will have created the `Sovereign Keys` ins
     ################################
     ssh ec2-user@$bastion_ip
     ```
-2. Assuming the `Sovereign Keys` instances had time to appear, connect to an healthy one using EC2 Instance Connect from the bastion:
+2. **Assuming the `Sovereign Keys` instances had time to appear**, connect to an healthy one using EC2 Instance Connect from the bastion:
     ```sh
     ####################################
     # Executed on the Bastion instance #
@@ -630,7 +630,7 @@ Final step of our installation journey, configuring the customer agent so that w
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
-Before starting these steps, verify that the `cfn-sovereign-keys-mainstack` finished its previous updates.
+**Before starting these steps, verify that the `cfn-sovereign-keys-mainstack` finished its previous updates**.
 
 1. Connect to the bastion using SSH:
     ```sh
@@ -934,7 +934,7 @@ We will do the example with an AMI, because that is less AWS heavy-lifting (swit
     ```
     ```sh
     root# sk-automount
-    Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
+    Invoking: sk-mount --ignore-nitro-check /dev/sdf /mnt/data
     Asking Revolve Sovereign Key API to decrypt the secret...       NOK
     Cleaning up...
     ```
@@ -965,7 +965,7 @@ We will do the example with an AMI, because that is less AWS heavy-lifting (swit
     ```
     ```sh
     root# sk-automount
-    Invoking: sk-mount-dev --ignore-nitro-check /dev/sdf /mnt/data
+    Invoking: sk-mount --ignore-nitro-check /dev/sdf /mnt/data
     Asking Revolve Sovereign Key API to decrypt the secret...       OK
     Verifying the signature of the wrapped secret...                OK
     Unwrapping the wrapped version of the secret...                 OK
