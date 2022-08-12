@@ -1475,7 +1475,7 @@ Project Link: [https://github.com/d2si/sovereign-keys](https://github.com/d2si/s
 <!-- ACKNOWLEDGMENTS -->
 # Acknowledgments
 
-Bigup to the people that help building `Sovereign Keys`:
+Bigup to the people that are helping building `Sovereign Keys`:
 
 * Jérémie RODON - [@JeremieRodon](https://twitter.com/JeremieRodon) - jeremie@revolve.team
 
