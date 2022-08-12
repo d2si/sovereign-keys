@@ -319,6 +319,7 @@ These steps are only necessary if you plan on using CloudHSM as a backend, eithe
 The CloudHSM creation process is not entirely repeated in this document as it is very detailed by the AWS documentation. Therefore, we mainly refer to it. You will need access to the `openssl` binary for some of the steps.
 
 1. First create a CloudHSM cluster, following the [AWS documentation](https://docs.aws.amazon.com/cloudhsm/latest/userguide/create-cluster.html). You can use the private subnets of the `Sovereign Keys` VPC or create an additional VPC that you will peer to the `Sovereign Keys` VPC, it's up to you. For the purpose of this document, we assume the cluster is in the same VPC as `Sovereign Keys` API, in the private subnets:
+    
     With bash or Windows Bash Subsystem:
     ```sh
     private_subnets=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=subnet-sovereign-keys-api-private-*" --output text --query "Subnets[].SubnetId" | xargs)
