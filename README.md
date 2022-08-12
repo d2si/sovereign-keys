@@ -626,7 +626,7 @@ Note: These steps must be repeated each time a fresh `Sovereign Keys` API cluste
 
 ### Configuring the customer agent
 
-Final step of our installation journey, configuring the customer agent so that we have a working RPM package to distribute and use. We need two information for those final steps:
+Final step of our installation journey, configuring the customer agent so that we have a working RPM package to distribute and use. We need two pieces of information for those final steps:
 - the `Private API Gateway URL`
 - the `Sovereign Keys` Public Signing Key: `api_public_key.pem`
 
