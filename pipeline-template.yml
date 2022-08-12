@@ -5,6 +5,8 @@ Parameters:
   GloballyUniqueCompanyIdentifier:
     Type: String
     Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
+    AllowedPattern: "(?!(^xn--))^[a-z0-9][a-z0-9-]{0,19}$"
+    ConstraintDescription: "Malformed input-parameter GloballyUniqueCompanyIdentifier must only contains lowercase letter, numbers and hyphens (-) ; and is limited to 20 characters"
   ProjectName:
     Type: String
     Description: Name of the project to insert in all the resource names
