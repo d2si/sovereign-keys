@@ -165,6 +165,7 @@ if [ $? -ne 0 ] ; then echo "ERROR while mounting the secret store!!" ; cleanup 
 VOLUME_UUID=$(get_device_guid $DEVICE)
 # Get a RSA public key
 PUB_KEY=$(get_rsa_pub_key)
+echo "Ephemeral RSA public key: $PUB_KEY"
 # Ask for a new secret
 log "Asking Revolve Sovereign Key API for a new secret..."
 RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"rsa_wrapping_key\": \"$PUB_KEY\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/generate-secret)

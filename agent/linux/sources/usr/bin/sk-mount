@@ -114,6 +114,7 @@ if [ $? -ne 0 ] ; then echo "ERROR while mounting the secret store!!" ; cleanup 
 VOLUME_UUID=$(get_device_guid $DEVICE)
 # Get a RSA public key
 PUB_KEY=$(get_rsa_pub_key)
+echo "Ephemeral RSA public key: $PUB_KEY"
 # Encode the encrypted secret
 ENC_SECRET=$(get_encrypted_secret)
 log "Asking Revolve Sovereign Key API to decrypt the secret..."
