@@ -172,7 +172,7 @@ In order to simplify the deployment process and minimize assumptions about the t
 
 Therefore the only technical AWS prerequisite is that you have administrative access to some AWS account (technically, you only need admin access to the services previously listed but as it includes AWS IAM you might as well be an account admin).
 
-Finally, you should be familiar with DevOps tools like `bash`, `git`, `curl` and `ssh` in order to perform the installation steps.
+Finally, you should be familiar with DevOps tools like `bash`, `git`, `curl` and `ssh` in order to perform the installation steps. We will use `openssl` a lot as well.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -193,7 +193,7 @@ If you just want to make a test, just be sure to shutdown your HSM **nodes** (**
 Every CLI commands given in those installation steps work under the following conditions:
 - you are running them in an environment **configured with credentials for the AWS account** you want to use, with the **target region as a default**;
 - you don't change the value of the ProjectName when you create the `Sovereign Keys` CloudFormation stack;
-- you use a Linux **bash** or the **Windows Bash subsystem**.
+- you use a Linux **bash**, the **Windows Bash subsystem** or **zsh**.
 
 The default AWS region for the CLI can be configured like this:
 ```sh
@@ -243,7 +243,7 @@ These steps will create an initial deployment of `Sovereign Keys`. It will not b
     git commit -m "Initial commit"
     git push
     ```
-7. Wait for CodePipeline to work its magic, it will create the `Sovereign Keys` architecture skeleton with a dummy "customer" VPC (it should take 15-20 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the `Sovereign Keys` architecture, see the see <a href="#architecture">Architecture</a> section.
+7. Wait for CodePipeline to work its magic, it will create the `Sovereign Keys` architecture skeleton with a dummy "customer" VPC (it should take ~10 minutes). "Skeleton" means without any costly resources like EC2 instances or NLBs: it will allow you to configure the HSM backend without paying idling resources. If you want to know more about the `Sovereign Keys` architecture, see the see <a href="#architecture">Architecture</a> section.
     ```sh
     # Each "wait stack-exists" waits for max 100 seconds...
     aws cloudformation wait stack-exists --stack-name cfn-sovereign-keys-mainstack
@@ -369,7 +369,7 @@ The essentials of the CloudHSM creation process is repeated in this document and
     ```
     Wait for the new node to be active.
 3. (Optional) At this point, you will be shortly able to retrieve the manufacturer and the AWS root certificates and start verifying the authenticity of the HSM node. For production use, you should definitively do it ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/verify-hsm-identity.html)).
-4. Initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)):
+4. As soon as the first HSM node is ACTIVE, initialize the cluster ([AWS doc](https://docs.aws.amazon.com/cloudhsm/latest/userguide/initialize-cluster.html)):
     ```sh
     # Retrieve the cluster CSR
     aws cloudhsmv2 describe-clusters --filters clusterIds=$cluster_id --output text --query 'Clusters[].Certificates.ClusterCsr' > cloudhsm.csr
@@ -390,7 +390,7 @@ The essentials of the CloudHSM creation process is repeated in this document and
     # Initialize the cluster
     aws cloudhsmv2 initialize-cluster --cluster-id $cluster_id --signed-cert file://cloudhsm.crt --trust-anchor file://customerCA.crt
     ```
-    This step will yield the `customerCA.crt` certificate that you must copy in the repo: `sovereign-instances/cloudhsm-conf/customerCA.crt`
+    This step yields the `customerCA.crt` certificate.
 5. Copy the `customerCA.crt` on the bastion:
     ```sh
     scp customerCA.crt ec2-user@$bastion_ip:~/customerCA.crt
@@ -494,7 +494,7 @@ Some of this information is not secret and will be added to your CodeCommit repo
         }
     }
     ```
-16. Verify that you only have 3 modification to your repo and you are not pushing secrets by mistake:
+16. Verify that you only have 3 modifications to your repo and you are not pushing secrets by mistake:
     ```sh
     # Say you are at the root of the CodeCommit repository
     $ git status
@@ -517,6 +517,7 @@ Some of this information is not secret and will be added to your CodeCommit repo
     git commit -m "Adding HSM configs and creating the Sovereign Keys cluster"
     git push
     ```
+
 The two secrets, the `PIN` and the `ssl-client.key`, obviously cannot be written into the repo (so **DON'T** write them into the repo). They will be used at the <a href="#finalizing-the-api-installation">next stage of the installation</a>.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -646,7 +647,7 @@ The final commit of the previous step will have created the `Sovereign Keys` ins
     rm -f /mnt/ram-store/tmp.key
     ```
     `curl` should not return anything. If it returns something, it either means the API already has the key due to a previous attempt (the message will be explicit) or there is a problem. In the last case, you should go back to step 2 and try another instance.
-4. Then we give the `PIN`. In the following script, replace `<HSM PIN>` by the actual `PIN`:
+4. Then we give the `PIN`. In the following script, replace `<HSM PIN>` by your actual `PIN`:
     ```sh
     ##################################################
     # Executed on an healthy Sovereign Keys instance #
@@ -805,7 +806,7 @@ It is also available in the HOME directory of `ec2-user` on the `ec2-sovereign-k
     -rw-rw-r-- 1 ec2-user ec2-user 103 Aug 10 15:44 wrap_secret2.sig
     TEST SUCCEED
     ```
-    Note: Don't pay too much attention to the file sizes of the .sig files, they can vary slightly. As long as **TEST SUCCEED** is displayed, the test passed.
+    Note: Don't pay attention to the exact file sizes, they can vary slightly. As long as **TEST SUCCEED** is displayed, you can be sure the test passed.
 
 The script is fairly well commented if you wish to understand how the tests are performed.
 
@@ -1088,7 +1089,7 @@ When I created my SK volume, there was first a `generate-secret`:
   "signature": "MGYCMQDRtPd2kHMS8XkDFbqB5YI//W13JojR0dlRK+EPykK7x7EIMghtuFalgNAdciHdNloCMQCni3a0A3gm6IaLQLyjs83J73HzBBlmsDOb9szXUMREpP+T0m4R6CywGPvg2W++gHE="
 }
 ```
-Then I rebooted the instance and it needs to call `decrypt-secret` in order to unlock the volume:
+Then I rebooted the instance and it needed to call `decrypt-secret` in order to unlock the volume:
 ```json
 {
   "event_version": 1,
@@ -1196,7 +1197,7 @@ Which led to a successful `decrypt-secret`:
   "signature": "MGQCMBJfrugJSc52fIhtI39xtw/un1ohIPS4+8WLgadBRhGoHXT3fmPDsc3ngJecry3QEgIwEZiGFBzaiE5D29idEY2vMB5hpPVwBln5PTp6K42xu8zEaJ2KaDI0M87enzbSy2Pz"
 }
 ```
-Note: The *vpc_op_seq_num* fields do not always follow each other because I did other tests while writing this.
+Note: In those examples, the *vpc_op_seq_num* fields do not always follow each other because I did other tests in-between while writing this.
 
 You can see that each log entry is fairly detailed. And each one is **signed** by `Sovereign Keys` using a private key that **CANNOT** leave the backend HSMs, which gives you a very strong proof that the log you see is indeed an authentic, non-altered one created by `Sovereign Keys`.
 
@@ -1234,10 +1235,9 @@ Rest assured, destroying is always easier and quicker than creating ;)
 
 ### Just a pause before tomorrow
 
-1. Remove the HSM nodes of your cluster. Assuming there is only one cluster:
+1. Remove the HSM nodes of your cluster:
     ```sh
-    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    for hsm in $(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
+    for hsm in $(aws cloudhsmv2 describe-clusters --filters clusterIds=$cluster_id --output text --query "Clusters[].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
     ```
 2. Modify the configuration file `main-configuration.json` at the root of the repository and toggle ToggleMainResourceCreation to *false*.
 3. Commit and push your modification:
@@ -1256,7 +1256,6 @@ Note that the bastion will be kept running, you can shut it down manually if you
 
 1. Create at least one HSM in the cluster. Assuming you have only one cluster:
     ```sh
-    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 create-hsm --cluster-id $cluster_id --availability-zone $(aws ec2 describe-availability-zones --output text --query "AvailabilityZones[0].RegionName")a
     ```
 2. (Optional) Create a second HSM in the cluster, in another AZ (recommended for production use). Assuming you have only one cluster:
@@ -1279,10 +1278,9 @@ Note that the bastion will be kept running, you can shut it down manually if you
 
 ### I want to destroy everything
 
-1. Remove the HSM nodes of your cluster. Assuming there is only one cluster:
+1. Remove the HSM nodes of your cluster:
     ```sh
-    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
-    for hsm in $(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
+    for hsm in $(aws cloudhsmv2 describe-clusters --filters clusterIds=$cluster_id --output text --query "Clusters[].Hsms[].HsmId" | xargs) ; do aws cloudhsmv2 delete-hsm --cluster-id $cluster_id --hsm-id $hsm ; done
     ```
 2. Modify the configuration file `main-configuration.json` at the root of the repository and toggle ToggleMainResourceCreation to *false*.
 3. Commit and push your modification:
@@ -1292,25 +1290,23 @@ Note that the bastion will be kept running, you can shut it down manually if you
     git commit -m "Removing most the EC2 instances"
     git push
     ```
-4. Remove the cluster itself:
+4. Remove the CloudHSM cluster Security Group from the Bastion instance
+5. Remove the CloudHSM cluster itself:
     ```sh
-    cluster_id=$(aws cloudhsmv2 describe-clusters --output text --query "Clusters[0].ClusterId")
     aws cloudhsmv2 delete-cluster --cluster-id $cluster_id
     ```
-5. Empty all the S3 buckets if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account. The bucket to empty are named:
+6. Empty all the S3 buckets if you can (if you were in COMPLIANCE mode, you can't). If you cannot empty them, CloudFormation will not delete them and they will remain in your account. The bucket to empty are named:
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-audit-logs
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-customer-audit-logs
     - \<GloballyUniqueCompanyIdentifier>-sovereign-keys-ekt **/!\ HUGE WARNING HERE /!\\**: emptying this bucket is the same thing as deleting every SK volumes and their snapshots. If you are in a production environment, **you DON'T WANT TO DO THAT**.
-6. Remove the CloudHSM cluster Security Group from the Bastion instance
-7. Delete the CloudHSM cluster Security Group, as it will prevent the VPC removal 
-8. Terminate the `ec2-sovereign-keys-test-customer-test-instance-restored`, as it will prevent the "dummy" customer VPC removal
-9. Delete the AMI and snapshots created during the tests
-10. Delete the `Sovereign Keys` architecture stack:
+7. Terminate the `ec2-sovereign-keys-test-customer-test-instance-restored`, as it will prevent the "dummy" customer VPC removal
+8. Delete the AMI and snapshots created during the tests
+9. Delete the `Sovereign Keys` architecture stack:
     ```sh
     aws cloudformation delete-stack --stack-name cfn-sovereign-keys-mainstack
     aws cloudformation wait stack-delete-complete --stack-name cfn-sovereign-keys-mainstack
     ```
-11. Confirme the architecture stack is correctly deleted, **then** delete the `Sovereign Keys` pipeline stack:
+10. Confirm the architecture stack is correctly deleted, **then** delete the `Sovereign Keys` pipeline stack:
     ```sh
     aws cloudformation delete-stack --stack-name sk-stack
     ```
