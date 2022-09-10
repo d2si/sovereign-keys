@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+# TODO
+# - Retrieve the pubkey from some Revolve controled website
+# - Add retry mechanic when querying the API
+
+# Load commons constants and functions
+. /usr/lib/sovereign-keys/commons.sh
+
+usage () {
+    echo "Usage: $0 [<OPTIONS>]"
+    echo ""
+    echo "Sovereign Keys signing public key verification"
+    echo "Compares the local version of the signing public key with the version served by the API"
+    echo "OPTIONS:"
+    echo -e "-h|--help\t\tShow this help"
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -h|--help)
+            usage
+            exit 0
+        ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+        ;;
+    esac
+done
+
+# Retrieve the local version of the public key
+echo "Retrieve local version of the Revolve public signing key"
+LOCAL_KEY=$(get_local_pubkey)
+
+# Retrieve the remote version of the public key
+echo "Retrieve remote version of the Revolve public signing key"
+REMOTE_KEY=$(curl -sf -H "Authorization: Custom" -X GET $BASE_URL/public-signing-key | jq -r .public_key)
+
+# Control they are identical
+if [ "$LOCAL_KEY" != "$REMOTE_KEY" ] ; then
+    echo "CRITICAL: The local and remote version of the Revolve Sovereign Keys public signing key differs"
+    exit 1
+fi
+
+echo "Keys are identical"
+exit 0

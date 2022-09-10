@@ -1,0 +1,626 @@
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: The API
+
+Parameters:
+  ProjectName:
+    Type: String
+  NlbArn:
+    Type: String
+  VPCInfosTableName:
+    Type: String
+  ToggleMainResourceCreation:
+    Type: String
+
+Conditions:
+  bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
+
+Resources:
+###########
+# Lambdas #
+###########
+  AutorizerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub lambda-${ProjectName}-apigateway-authorizer
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Architectures:
+        - x86_64 # Unfortunatly, for now, arm64 is not supported in Paris (eu-west-3)
+      Description: Lambda called by APIGateway to authorize a request
+      Code: ../lambdas/authorizer
+      MemorySize: 128
+      Timeout: 10
+      Role: !GetAtt AutorizerLambdaRole.Arn
+      Environment:
+        Variables:
+          VPC_INFOS_TABLE: !Ref VPCInfosTableName
+  AutorizerLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AutorizerLambda}
+      RetentionInDays: 365
+  AutorizerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-${ProjectName}-lambda-apigateway-authorizer
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: working-permissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: '*'
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${VPCInfosTableName}
+      Path: /
+  AutorizerLambdaRoleBasicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref AutorizerLambdaRole
+      PolicyName: basic-lambda
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !GetAtt AutorizerLambdaLogGroup.Arn
+  AutorizerLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AutorizerLambda
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${EncryptionAPI}/authorizers/*
+
+############
+# VPC Link #
+############
+  VPCLink:
+    Type: AWS::ApiGateway::VpcLink
+    Condition: bToggleMainResourceCreation
+    Properties:
+      Name: !Sub vpclink-${ProjectName}-sovereign-instances
+      TargetArns:
+        - !Ref NlbArn
+#######
+# API #
+#######
+  EncryptionAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Description: Backend REST API for the Revolve sovereign encryption
+      Name: !Sub api-${ProjectName}
+      FailOnWarnings: true
+      EndpointConfiguration:
+        Types:
+          - PRIVATE
+      Policy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: execute-api:Invoke
+            Resource: execute-api:/*
+      Body:
+        openapi: '3.0.1'
+        info:
+          title: Revolve Sovereign Encryption API
+          description: Revolve Sovereign Encryption API
+          version: '1'
+        paths:
+          /public-signing-key:
+            options:
+              tags:
+                - options
+              description: Preflight CORS checks for the PATH
+              responses:
+                '200':
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      $ref: '#/components/headers/Access-Control-Allow-Origin'
+                    Access-Control-Allow-Methods:
+                      $ref: '#/components/headers/Access-Control-Allow-Methods'
+                    Access-Control-Allow-Headers:
+                      $ref: '#/components/headers/Access-Control-Allow-Headers'
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{"statusCode" : 200}'
+                responses:
+                  default:
+                    statusCode: '200'
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'*'"
+                      method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+                    responseTemplates:
+                      application/json: '{}'
+              security: []
+            get:
+              tags:
+                - encryption
+              description: Retrieve the public signing key of the API
+              responses:
+                '200':
+                  $ref: '#/components/responses/PublicKeyResponse'
+                '400':
+                  $ref: '#/components/responses/GenericError'
+              x-amazon-apigateway-integration:
+                type: http_proxy
+                httpMethod: GET
+                connectionType: VPC_LINK
+                connectionId: '${stageVariables.vpcLinkId}'
+                uri: http://sovereign-keys.revolve.team/v1/public-signing-key
+                passthroughBehavior: when_no_match
+                responses:
+                  default:
+                    statusCode: '200'
+              security:
+                - Authorizer: []
+          /encryption/{InstanceId}/generate-secret:
+            options:
+              tags:
+                - options
+              description: Preflight CORS checks for the PATH
+              responses:
+                '200':
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      $ref: '#/components/headers/Access-Control-Allow-Origin'
+                    Access-Control-Allow-Methods:
+                      $ref: '#/components/headers/Access-Control-Allow-Methods'
+                    Access-Control-Allow-Headers:
+                      $ref: '#/components/headers/Access-Control-Allow-Headers'
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{"statusCode" : 200}'
+                responses:
+                  default:
+                    statusCode: '200'
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'*'"
+                      method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+                    responseTemplates:
+                      application/json: '{}'
+              security: []
+            post:
+              tags:
+                - encryption
+              description: Retrieve a new secret
+              parameters:
+                - $ref: '#/components/parameter/InstanceId'
+              requestBody:
+                $ref: '#/components/requestBodies/GenerateSecretRequest'
+              responses:
+                '200':
+                  $ref: '#/components/responses/GenerateSecretResponse'
+                '400':
+                  $ref: '#/components/responses/GenericError'
+              x-amazon-apigateway-integration:
+                type: http_proxy
+                httpMethod: POST
+                connectionType: VPC_LINK
+                connectionId: '${stageVariables.vpcLinkId}'
+                uri: http://sovereign-keys.revolve.team/v1/encryption/{InstanceId}/generate-secret
+                passthroughBehavior: when_no_match
+                requestParameters:
+                  'integration.request.path.InstanceId': 'method.request.path.InstanceId'
+                responses:
+                  default:
+                    statusCode: '200'
+              security:
+                - Authorizer: []
+          /encryption/{InstanceId}/decrypt-secret:
+            options:
+              tags:
+                - options
+              description: Preflight CORS checks for the PATH
+              responses:
+                '200':
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      $ref: '#/components/headers/Access-Control-Allow-Origin'
+                    Access-Control-Allow-Methods:
+                      $ref: '#/components/headers/Access-Control-Allow-Methods'
+                    Access-Control-Allow-Headers:
+                      $ref: '#/components/headers/Access-Control-Allow-Headers'
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{"statusCode" : 200}'
+                responses:
+                  default:
+                    statusCode: '200'
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'*'"
+                      method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+                    responseTemplates:
+                      application/json: '{}'
+              security: []
+            post:
+              tags:
+                - encryption
+              description: Decrypt a previously generated secret
+              parameters:
+                - $ref: '#/components/parameter/InstanceId'
+              requestBody:
+                $ref: '#/components/requestBodies/DecryptSecretRequest'
+              responses:
+                '200':
+                  $ref: '#/components/responses/DecryptSecretResponse'
+                '400':
+                  $ref: '#/components/responses/GenericError'
+              x-amazon-apigateway-integration:
+                type: http_proxy
+                httpMethod: POST
+                connectionType: VPC_LINK
+                connectionId: '${stageVariables.vpcLinkId}'
+                uri: http://sovereign-keys.revolve.team/v1/encryption/{InstanceId}/decrypt-secret
+                passthroughBehavior: when_no_match
+                requestParameters:
+                  'integration.request.path.InstanceId': 'method.request.path.InstanceId'
+                responses:
+                  default:
+                    statusCode: '200'
+              security:
+                - Authorizer: []
+          /encryption/{InstanceId}/convert-secret:
+            options:
+              tags:
+                - options
+              description: Preflight CORS checks for the PATH
+              responses:
+                '200':
+                  description: "200 response"
+                  headers:
+                    Access-Control-Allow-Origin:
+                      $ref: '#/components/headers/Access-Control-Allow-Origin'
+                    Access-Control-Allow-Methods:
+                      $ref: '#/components/headers/Access-Control-Allow-Methods'
+                    Access-Control-Allow-Headers:
+                      $ref: '#/components/headers/Access-Control-Allow-Headers'
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{"statusCode" : 200}'
+                responses:
+                  default:
+                    statusCode: '200'
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: !Sub "'*'"
+                      method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+                    responseTemplates:
+                      application/json: '{}'
+              security: []
+            post:
+              tags:
+                - encryption
+              description: Re-encrypt a previously generated secret for a new instance
+              parameters:
+                - $ref: '#/components/parameter/InstanceId'
+              requestBody:
+                $ref: '#/components/requestBodies/ConvertSecretRequest'
+              responses:
+                '200':
+                  $ref: '#/components/responses/ConvertSecretResponse'
+                '400':
+                  $ref: '#/components/responses/GenericError'
+              x-amazon-apigateway-integration:
+                type: http_proxy
+                httpMethod: POST
+                connectionType: VPC_LINK
+                connectionId: '${stageVariables.vpcLinkId}'
+                uri: http://sovereign-keys.revolve.team/v1/encryption/{InstanceId}/convert-secret
+                passthroughBehavior: when_no_match
+                requestParameters:
+                  'integration.request.path.InstanceId': 'method.request.path.InstanceId'
+                responses:
+                  default:
+                    statusCode: '200'
+              security:
+                - Authorizer: []
+        components:
+        ################################################################################
+        #                                   Headers                                    #
+        ################################################################################
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+        ################################################################################
+        #                                   Schemas                                    #
+        ################################################################################
+          schemas:
+            generatesecret:
+              description: The schema of the decrypt secret request
+              type: object
+              required:
+                - rsa_wrapping_key
+                - volume_uuid
+              properties:
+                rsa_wrapping_key:
+                  type: string
+                  format: byte
+                  description: The B64 string of the RSA public key
+                volume_uuid:
+                  type: string
+                  description: The GPT UUID of the volume
+            decryptsecret:
+              description: The schema of the decrypt secret request
+              type: object
+              required:
+                - encrypted_secret
+                - rsa_wrapping_key
+                - volume_uuid
+              properties:
+                encrypted_secret:
+                  type: string
+                  format: byte
+                  description: The B64 string of the encrypted secret to decrypt
+                rsa_wrapping_key:
+                  type: string
+                  format: byte
+                  description: The B64 string of the RSA public key
+                volume_uuid:
+                  type: string
+                  description: The GPT UUID of the volume
+            convertsecret:
+              description: The schema of the convert secret request
+              type: object
+              required:
+                - encrypted_secret
+                - volume_uuid
+              properties:
+                encrypted_secret:
+                  type: string
+                  format: byte
+                  description: The B64 string of the encrypted secret to convert
+                volume_uuid:
+                  type: string
+                  description: The GPT UUID of the volume
+            error:
+              description: The standard error object for this API
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  description: The message detailling this error
+        ################################################################################
+        #                                   Parameters                                 #
+        ################################################################################
+          parameters:
+            InstanceId:
+              name: InstanceId
+              description: The ID of the instance calling the API
+              in: path
+              required: true
+              schema:
+                type: string
+        ################################################################################
+        #                                 Request bodies                               #
+        ################################################################################
+          requestBodies:
+            GenerateSecretRequest:
+              description: Request a new secret
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/generatesecret'
+            DecryptSecretRequest:
+              description: Decrypt a secret
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/decryptsecret'
+            ConvertSecretRequest:
+              description: Convert a secret to be usable by a new instance
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/convertsecret'
+        ################################################################################
+        #                             Responses objects                                #
+        ################################################################################
+          responses:
+            GenericError:
+              description: The generic error
+              headers:
+                Access-Control-Allow-Origin:
+                  $ref: '#/components/headers/Access-Control-Allow-Origin'
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/error'
+            GenerateSecretResponse:
+              description: A new secret, encrypted and wrapped
+              headers:
+                Access-Control-Allow-Origin:
+                  $ref: '#/components/headers/Access-Control-Allow-Origin'
+              content:
+                application/json:
+                  schema:
+                    description: The schema of the generate secret response
+                    type: object
+                    required:
+                      - encrypted_secret
+                      - encrypted_secret_signature
+                      - wrapped_secret
+                      - wrapped_secret_signature
+                    properties:
+                      encrypted_secret:
+                        type: string
+                        format: byte
+                        description: The B64 string of the new secret, encrypted
+                      encrypted_secret_signature:
+                        type: string
+                        format: byte
+                        description: The B64 string of the signature of the encrypted secret that allow to verify it was produce by the API
+                      wrapped_secret:
+                        type: string
+                        format: byte
+                        description: The B64 string of the new secret, wrapped with the RSA public key given in the request
+                      wrapped_secret_signature:
+                        type: string
+                        format: byte
+                        description: The B64 string of the signature of the wrapped secret that allow to verify the wrap was produce by the API
+            DecryptSecretResponse:
+              description: A wrapped secret
+              headers:
+                Access-Control-Allow-Origin:
+                  $ref: '#/components/headers/Access-Control-Allow-Origin'
+              content:
+                application/json:
+                  schema:
+                    description: The schema of the decrypt secret response
+                    type: object
+                    required:
+                      - wrapped_secret
+                      - wrapped_secret_signature
+                    properties:
+                      wrapped_secret:
+                        type: string
+                        format: byte
+                        description: The B64 string of the new secret, wrapped with the RSA public key given in the request
+                      wrapped_secret_signature:
+                        type: string
+                        format: byte
+                        description: The B64 string of the signature of the wrapped secret that allow to verify the wrap was produce by the API
+            ConvertSecretResponse:
+              description: An encrypted secret
+              headers:
+                Access-Control-Allow-Origin:
+                  $ref: '#/components/headers/Access-Control-Allow-Origin'
+              content:
+                application/json:
+                  schema:
+                    description: The schema of the convert secret response
+                    type: object
+                    required:
+                      - encrypted_secret
+                      - encrypted_secret_signature
+                    properties:
+                      encrypted_secret:
+                        type: string
+                        format: byte
+                        description: The B64 string of the new secret, encrypted
+                      encrypted_secret_signature:
+                        type: string
+                        format: byte
+                        description: The B64 string of the signature of the encrypted secret that allow to verify it was produce by the API
+            PublicKeyResponse:
+              description: The public key that verifies all the API signatures
+              headers:
+                Access-Control-Allow-Origin:
+                  $ref: '#/components/headers/Access-Control-Allow-Origin'
+              content:
+                application/json:
+                  schema:
+                    description: The schema of the public key response
+                    type: object
+                    required:
+                      - public_key
+                    properties:
+                      public_key:
+                        type: string
+                        format: byte
+                        description: The B64 DER string of the public key
+        ################################################################################
+        #                                 Security   Definitions                       #
+        ################################################################################
+          securitySchemes:
+            Authorizer:
+              type: "apiKey"
+              name: "Authorization"
+              in: "header"
+              x-amazon-apigateway-authtype: "custom"
+              x-amazon-apigateway-authorizer:
+                authorizerUri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AutorizerLambda.Arn}/invocations
+                authorizerResultTtlInSeconds: 0
+                identitySource: "method.request.header.Authorization"
+                type: "request"
+        ################################################################################
+        #                                 Security                                     #
+        ################################################################################
+        security:
+          - Authorizer: []
+        ################################################################################
+        #                                   Tags                                       #
+        ################################################################################
+        tags:
+          - name: encryption
+            description: All the calls related to encryption
+          - name: options
+            description: All the options API methods
+        ################################################################################
+        #                                   Documentation                              #
+        ################################################################################
+        x-amazon-apigateway-documentation:
+          version: v1.0
+          createdDate: '2021-01-15T11:27:00Z'
+          documentationParts:
+            - location:
+                type: API
+              properties:
+                info:
+                  description: Backend REST API for the Revolve sovereign encryption
+  DeployApi:
+    Type: AWS::ApiGateway::Deployment
+    Condition: bToggleMainResourceCreation
+    Properties:
+      Description: Revolve Sovereign Encryption API default Deployment
+      RestApiId: !Ref EncryptionAPI
+      StageName: v1
+      StageDescription:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 10
+        Variables:
+          vpcLinkId: !Ref VPCLink
+
+Outputs:
+  ApiUrl:
+    Description: The URL of the API
+    Value: !Sub https://${EncryptionAPI}.execute-api.${AWS::Region}.amazonaws.com/v1/

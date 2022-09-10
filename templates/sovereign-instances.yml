@@ -1,0 +1,522 @@
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Sovereign instances stack
+
+Parameters:
+  ProjectName:
+    Type: String
+  Amzn2AMILatest:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2
+    # Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-arm64-gp2
+  SovereignKeysBucketName:
+    Type: String
+  AuditBucketName:
+    Type: String
+  VPCInfosTableName:
+    Type: String
+  InstanceType:
+    Type: String
+  HsmType:
+    Type: String
+  AdditionalSecurityGroup:
+    Type: String
+  HsmIpAddresses:
+    Type: CommaDelimitedList
+  HsmIpAddressesCount:
+    Type: Number
+  SelfLockerOn:
+    Type: String
+  ToggleMainResourceCreation:
+    Type: String
+
+Conditions:
+  bToggleMainResourceCreation: !Equals [ !Ref ToggleMainResourceCreation, 'true' ]
+  bAdditionalSecurityGroup: !Not [ !Equals [ !Ref AdditionalSecurityGroup, '' ] ]
+  bHsmIsProteccio: !Equals [ !Ref HsmType, proteccio ]
+  bHsmIp1IsPresent: !Or
+    - Condition: bHsmIp2IsPresent
+    - !Equals [ !Ref HsmIpAddressesCount, 1 ]
+  bHsmIp2IsPresent: !Or
+    - Condition: bHsmIp3IsPresent
+    - !Equals [ !Ref HsmIpAddressesCount, 2 ]
+  bHsmIp3IsPresent: !Equals [ !Ref HsmIpAddressesCount, 3 ]
+
+Resources:
+######################
+# Cloudwatch Logging #
+######################
+  SovereignInstancesLogGroupMessages:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ec2/${ProjectName}/sovereign-instances/messages
+      RetentionInDays: 365
+  SovereignInstancesLogGroupSecure:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ec2/${ProjectName}/sovereign-instances/secure
+      RetentionInDays: 365
+  SovereignInstancesLogGroupInstallNode:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ec2/${ProjectName}/sovereign-instances/install_update_sovereign_instances.log
+      RetentionInDays: 7
+  SovereignInstancesLogGroupAPI:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ec2/${ProjectName}/sovereign-instances/sovereign_keys_api.log
+      RetentionInDays: 3653
+  SovereignInstancesCloudWatchAgentConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Cloudwatch agent configuration
+      Name: !Sub /${ProjectName}/sovereign-instances/cloudwatchagentconfig
+      Type: String
+      Value:
+        !Sub |
+        {
+          "agent": {
+            "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log"
+          },
+          "logs": {
+            "logs_collected": {
+              "files": {
+                "collect_list": [
+                  {
+                    "file_path": "/var/log/messages",
+                    "log_group_name": "${SovereignInstancesLogGroupMessages}",
+                    "timezone": "UTC",
+                    "timestamp_format": "%b %d %H:%M:%S"
+                  },
+                  {
+                    "file_path": "/var/log/secure",
+                    "log_group_name": "${SovereignInstancesLogGroupSecure}",
+                    "timezone": "UTC",
+                    "timestamp_format": "%b %d %H:%M:%S"
+                  },
+                  {
+                    "file_path": "/var/log/install_update_sovereign_instance.log",
+                    "log_group_name": "${SovereignInstancesLogGroupInstallNode}",
+                    "timezone": "UTC"
+                  },
+                  {
+                    "file_path": "/home/sk-api/sovereign_keys_api.log",
+                    "log_group_name": "${SovereignInstancesLogGroupAPI}",
+                    "timezone": "UTC",
+                    "timestamp_format": "%Y-%m-%d %H:%M:%S,%f"
+                  }
+                ]
+              }
+            },
+            "log_stream_name": "{instance_id}",
+            "force_flush_interval": 5
+          }
+        }
+
+#############################################
+# Sovereign Instances Environment Variables #
+#############################################
+  SovereignInstancesEnvironmentVariablesConfig:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Environment variables that will be regularly pulled for updates by instances
+      Name: !Sub /${ProjectName}/sovereign-instances/fixed-env.sh
+      Type: String
+      Value:
+        !Sub
+          - |
+            export AWS_REGION=${AWS::Region}
+            export SSM_ENV_VARS=${ssm_env_vars}
+            export AWS_DEFAULT_REGION=${AWS::Region}
+            export ARTIFACT_BUCKET=${bucket}
+            export EKT_BUCKET=${SovereignKeysBucketName}
+            export AUDIT_BUCKET=${AuditBucketName}
+            export SSM_CLOUDWATCH_CONFIG=${SovereignInstancesCloudWatchAgentConfig}
+            export ASG_NAME=asg-${ProjectName}-sovereign-instances
+            export VPC_INFOS_TABLE=${VPCInfosTableName}
+            export HSM_TYPE=${HsmType}
+            export SELF_LOCKER_ON=${SelfLockerOn}
+          - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+            ssm_env_vars: !Sub /${ProjectName}/sovereign-instances/fixed-env.sh
+
+#####################################
+# SovereignInstances EC2 components #
+#####################################
+  OutboundToProteccioSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: bHsmIsProteccio
+    Properties:
+      GroupName: !Sub scg-${ProjectName}-sovereign-instances-hsm-access
+      GroupDescription: Security group allowing the Sovereign Keys instances access to their HSM must be provisionned manually
+      SecurityGroupEgress:
+        - Description: RPC
+          IpProtocol: udp
+          FromPort: 111
+          ToPort: 111
+          CidrIp: !If [ bHsmIp1IsPresent, !Select [ 0, !Ref HsmIpAddresses ], 0.0.0.0/0]
+        - Description: Proteccio TLS
+          IpProtocol: tcp
+          FromPort: 5552
+          ToPort: 5552
+          CidrIp: !If [ bHsmIp1IsPresent, !Select [ 0, !Ref HsmIpAddresses ], 0.0.0.0/0]
+        - !If
+          - bHsmIp2IsPresent
+          - Description: RPC
+            IpProtocol: udp
+            FromPort: 111
+            ToPort: 111
+            CidrIp: !Select [ 1, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+        - !If
+          - bHsmIp2IsPresent
+          - Description: Proteccio TLS
+            IpProtocol: tcp
+            FromPort: 5552
+            ToPort: 5552
+            CidrIp: !Select [ 1, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+        - !If
+          - bHsmIp3IsPresent
+          - Description: RPC
+            IpProtocol: udp
+            FromPort: 111
+            ToPort: 111
+            CidrIp: !Select [ 2, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+        - !If
+          - bHsmIp3IsPresent
+          - Description: Proteccio TLS
+            IpProtocol: tcp
+            FromPort: 5552
+            ToPort: 5552
+            CidrIp: !Select [ 2, !Ref HsmIpAddresses ]
+          - !Ref AWS::NoValue
+
+      Tags:
+        - Key: Name
+          Value: !Sub scg-${ProjectName}-sovereign-instances-hsm-access
+      VpcId: {Fn::ImportValue: !Sub '${ProjectName}:api:VPCID'}
+  SovereignInstancesSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub scg-${ProjectName}-sovereign-instances
+      GroupDescription: Security group for the Sovereign encryption API instances
+      SecurityGroupEgress:
+        - Description: Accept HTTPS connections to anywhere
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: Accept HTTP connections to anywhere
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - Description: Accept http connections from anywhere
+          IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+        - Description: Accept SSH only from bastion
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: {Fn::ImportValue: !Sub '${ProjectName}:api:BastionSG'}
+      Tags:
+        - Key: Name
+          Value: !Sub scg-${ProjectName}-sovereign-instances
+      VpcId: {Fn::ImportValue: !Sub '${ProjectName}:api:VPCID'}
+  SovereignInstancesETCDSGIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !GetAtt SovereignInstancesSecurityGroup.GroupId
+      Description: Internal ETCD communication between nodes
+      IpProtocol: tcp
+      FromPort: 2379
+      ToPort: 2380
+      SourceSecurityGroupId: !GetAtt SovereignInstancesSecurityGroup.GroupId
+  SovereignInstancesETCDSGEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !GetAtt SovereignInstancesSecurityGroup.GroupId
+      Description: Internal ETCD communication between nodes
+      IpProtocol: tcp
+      FromPort: 2379
+      ToPort: 2380
+      DestinationSecurityGroupId: !GetAtt SovereignInstancesSecurityGroup.GroupId
+  SovereignInstancesProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref SovereignInstancesRole
+      InstanceProfileName: !Sub role-${ProjectName}-sovereign-instances
+  SovereignInstancesRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-${ProjectName}-sovereign-instances
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: SovereignInstancesWorks
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: GetObjectS3
+                Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub
+                      - arn:${AWS::Partition}:s3:::${bucket}/sovereign-instances/*
+                      - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+              - Sid: ListBucketS3
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource:
+                  - !Sub
+                      - arn:${AWS::Partition}:s3:::${bucket}
+                      - bucket: {Fn::ImportValue: !Sub '${ProjectName}:S3ArtifactBucketName'}
+                Condition:
+                  StringLike:
+                    's3:prefix': sovereign-instances/*
+              - Sid: GetSSMParams
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/sovereign-instances/fixed-env.sh
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/sovereign-instances/cloudwatchagentconfig
+              - Sid: KMS
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource:
+                  !Sub
+                    - arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${keyid}
+                    - keyid: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
+                Condition:
+                  StringEquals:
+                    "kms:ViaService":
+                      - !Sub s3.${AWS::Region}.amazonaws.com
+                      - !Sub ssm.${AWS::Region}.amazonaws.com
+              - Sid: ManageEKTs
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::${SovereignKeysBucketName}
+                  - !Sub arn:${AWS::Partition}:s3:::${SovereignKeysBucketName}/*
+              - Sid: PushLogs
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${AuditBucketName}/*
+              - Sid: PushLogAssumeRole
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: '*'
+              - Sid: GetVPCInfos
+                Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${VPCInfosTableName}
+              - Sid: DescribeCluster
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - autoscaling:DescribeAutoScalingGroups
+                Resource: '*'
+              - Sid: DescribeCloudHSMCluster
+                Effect: Allow
+                Action: cloudhsm:DescribeClusters
+                Resource: '*'
+              - Sid: CompleteLifecycle
+                Effect: Allow
+                Action:
+                  - autoscaling:CompleteLifecycleAction
+                Resource: '*'
+      Path: /
+  SovereignInstancesLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        ImageId: !Ref Amzn2AMILatest
+        IamInstanceProfile:
+          Arn: !GetAtt SovereignInstancesProfile.Arn
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            Groups:
+              - !GetAtt SovereignInstancesSecurityGroup.GroupId
+              - !If [bHsmIsProteccio, !GetAtt OutboundToProteccioSecurityGroup.GroupId, !Ref AWS::NoValue]
+              - !If [bAdditionalSecurityGroup, !Ref AdditionalSecurityGroup, !Ref AWS::NoValue]
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: {Fn::ImportValue: !Sub '${ProjectName}:KMSKeyID'}
+              VolumeType: gp3
+        UserData:
+          Fn::Base64:
+            !Sub |
+              #!/bin/bash
+              # Disable SSM agent
+              yum erase -y amazon-ssm-agent
+              # Install python3 (3.8)
+              amazon-linux-extras install python3.8
+              # Install AWS CLI v2
+              # Uninstall v1
+              pip3 uninstall -y awscli
+              yum remove -y awscli
+              # Install v2
+              curl https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip
+              unzip awscliv2.zip
+              ./aws/install -u -b /usr/bin
+              rm -rf aws/ awscliv2.zip
+              # Instance Profile available barrier
+              while ! aws sts get-caller-identity ; do sleep 2 ; done
+              # Get env vars
+              aws ssm get-parameter --region ${AWS::Region} --name ${SovereignInstancesEnvironmentVariablesConfig} --query Parameter.Value --output text > /etc/profile.d/fixed-env.sh
+              # Load them
+              . /etc/profile.d/fixed-env.sh
+              # Install CloudWatchAgent
+              curl -O https://s3.${AWS::Region}.amazonaws.com/amazoncloudwatch-agent-${AWS::Region}/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+              rpm -U ./amazon-cloudwatch-agent.rpm
+              rm ./amazon-cloudwatch-agent.rpm
+              # Retrieve install / update sovereign instance from S3
+              aws s3 cp s3://$ARTIFACT_BUCKET/sovereign-instances/install_update_sovereign_instance.sh /root/install_update_sovereign_instance.sh
+              chmod +x /root/install_update_sovereign_instance.sh
+              # Run it now
+              LOGFILE=/var/log/install_update_sovereign_instance.log
+              /root/install_update_sovereign_instance.sh &>> $LOGFILE
+              # Make it run every 5 minute
+              echo "*/5 * * * * root . /etc/profile.d/fixed-env.sh ; /root/install_update_sovereign_instance.sh &>> $LOGFILE" >> /etc/crontab
+              # Ensure logs are regularly cleaned
+              cat << EOF > /etc/logrotate.d/install_update_sovereign_instance
+              $LOGFILE {
+                size 100M
+                copytruncate
+                nocopy
+                rotate 0
+                count 1
+                postrotate
+                  rm ${!LOGFILE}-*
+                endscript
+              }
+              EOF
+              # Complete autoscaling lifecycle action
+              instance_id=$(curl -sf http://169.254.169.254/latest/meta-data/instance-id)
+              aws autoscaling complete-lifecycle-action --lifecycle-action-result CONTINUE --instance-id $instance_id --lifecycle-hook-name userdata-hook --auto-scaling-group-name asg-${ProjectName}-sovereign-instances
+  SovereignInstancesASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - SovereignInstancesCloudWatchAgentConfig
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 2
+        MaxBatchSize: 1
+        PauseTime: PT1M
+    Properties:
+      AutoScalingGroupName: !Sub asg-${ProjectName}-sovereign-instances
+      LaunchTemplate:
+        LaunchTemplateId: !Ref SovereignInstancesLaunchTemplate
+        Version: !GetAtt SovereignInstancesLaunchTemplate.LatestVersionNumber
+      MaxSize: !If [ bToggleMainResourceCreation, 3, 0 ]
+      MinSize: !If [ bToggleMainResourceCreation, 2, 0 ]
+      DesiredCapacity: !If [ bToggleMainResourceCreation, 3, 0 ]
+      VPCZoneIdentifier:
+        - {Fn::ImportValue: !Sub '${ProjectName}:api:PrivateSubnet1ID'}
+        - {Fn::ImportValue: !Sub '${ProjectName}:api:PrivateSubnet2ID'}
+        - {Fn::ImportValue: !Sub '${ProjectName}:api:PrivateSubnet3ID'}
+      ServiceLinkedRoleARN: {Fn::ImportValue: !Sub '${ProjectName}:AutoscalingSLRArn'}
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 150
+      TargetGroupARNs:
+        - !Ref SovereignInstancesTG
+      LifecycleHookSpecificationList:
+        - DefaultResult: CONTINUE
+          HeartbeatTimeout: 180
+          LifecycleHookName: userdata-hook
+          LifecycleTransition: autoscaling:EC2_INSTANCE_LAUNCHING
+      Tags:
+        - Key: AsgName
+          PropagateAtLaunch: false
+          Value: !Sub asg-${ProjectName}-sovereign-instances
+        - Key: Name
+          PropagateAtLaunch: true
+          Value: !Sub ec2-${ProjectName}-sovereign-instances
+        - Key: Project
+          PropagateAtLaunch: true
+          Value: !Ref ProjectName
+#####################################
+# SovereignInstances NLB components #
+#####################################
+  SovereignInstancesNLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Condition: bToggleMainResourceCreation
+    Properties:
+      Type: network
+      IpAddressType: ipv4
+      Scheme: internal
+      Subnets:
+        - {Fn::ImportValue: !Sub '${ProjectName}:api:PrivateSubnet1ID'}
+        - {Fn::ImportValue: !Sub '${ProjectName}:api:PrivateSubnet2ID'}
+        - {Fn::ImportValue: !Sub '${ProjectName}:api:PrivateSubnet3ID'}
+      Tags:
+        - Key: Name
+          Value: !Sub nlb-${ProjectName}-sovereign-instances
+  SovereignInstancesNLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: bToggleMainResourceCreation
+    Properties:
+      LoadBalancerArn: !Ref SovereignInstancesNLB
+      Port: 80
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref SovereignInstancesTG
+  SovereignInstancesTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: TCP
+      Port: 8080
+      TargetType: instance
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 300
+      VpcId: {Fn::ImportValue: !Sub '${ProjectName}:api:VPCID'}
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /healthcheck
+      HealthCheckPort: 8080
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub tg-${ProjectName}-sovereign-instances
+
+Outputs:
+  SovereignInstancesNlbArn:
+    Description: The ARN of the NLB
+    Value: !If [ bToggleMainResourceCreation, !Ref SovereignInstancesNLB, "StringPlaceHolder" ]

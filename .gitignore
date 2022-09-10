@@ -15,6 +15,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!agent/linux/sources/usr/lib*
 lib64/
 parts/
 sdist/
@@ -32,6 +33,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!agent/linux/*.spec
 
 # Installer logs
 pip-log.txt
@@ -127,3 +129,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# MacOS DSStore files
+.DS_Store

@@ -1,0 +1,352 @@
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Main project stack deployed by the CICD and containing specific nested stacks
+Parameters:
+  GloballyUniqueCompanyIdentifier:
+    Type: String
+    Description: Used to prefix S3 Bucket names (that must be globally unique) to ensure there will be no conflict
+  ProjectName:
+    Type: String
+    Description: Name of the project to insert in most the resource names
+  SKVPCNeedNat:
+    Type: String
+    Description: true or false, weither or not to add NAT instances to the SK API VPC. If no NAT instance, lots of expensive VPC endpoints will be created to allow SK instances to perform their job.
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Default: 'true'
+  EIPAllocationIDs:
+    Type: String
+    Description: The comma-delimited list of EIP to use for the NAT instances. It MUST either be empty or contain 3 values
+    AllowedPattern: "^(eipalloc-[0-9a-f]+(,eipalloc-[0-9a-f]+){2})?$"
+    ConstraintDescription: Must be a list of either 0 or 3 eip allocation ids
+    Default: ''
+  BastionAuthorizedRange:
+    Type: String
+    Description: The source CIDR authorized to perform SSH connexion to the Bastion. If empty, the Bastion accept SSH connections from anywhere on the Internet
+    AllowedPattern: "^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/([0-9]|[1-2][0-9]|3[0-2]))?$"
+    ConstraintDescription: Must be a CIDR block
+    Default: ''
+  HsmType:
+    Type: String
+    Description: The type of HSM we use as backend
+    AllowedValues:
+      - cloudhsm
+      - proteccio
+  InstanceType:
+    Type: String
+    Description: The type of instance we use for SK API instances
+  AdditionalSecurityGroup:
+    Type: String
+    Description: A VPC SecurityGroup ID to add on the Sovereign Keys instances, usually used for CloudHSM
+    AllowedPattern: "^(sg-[0-9a-f]+)?$"
+    ConstraintDescription: Must be a Security Group ID
+    Default: ''
+  HsmIpAddresses:
+    Type: String
+    Description: A comma-delimited list of up to 3 HSM IP addresses written as /32 CIDR blocks. If none are given, the instances will have outbound connections on the HSM ports open to 0.0.0.0/0
+    AllowedPattern: "^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]/32)?((,([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5]/32){0,2}$"
+    ConstraintDescription: Must be a /32 CIDR block list of max 3 entry
+    Default: ''
+  SelfLockerOn:
+    Type: String
+    Description: true or false, weither or not to enable to self-locker process that ensure the SK instances are not accessible when they might have secret in memory.
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Default: 'true'
+  ObjectLockMode:
+    Type: String
+    Description: The Object Lock mode to use, either GOVERNANCE for testing purpose or COMPLIANCE for production workload. Lock duration is hard-coded to 10 years. Be careful with the COMPLIANCE mode, it is not possible to remove the objects AT ALL
+    AllowedValues:
+      - GOVERNANCE
+      - COMPLIANCE
+  ToggleMainResourceCreation:
+    Type: String
+    Description: true or false, weither or not to actually create the EC2 instances and endpoints. Useful to reduce a test to minimal costs at the end of the day.
+    AllowedValues:
+      - 'false'
+      - 'true'
+    Default: 'true'
+
+Resources:
+#######################################
+# DynamoDB onboarding Custom Resource #
+#######################################
+  DynDBOnboardLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${DynDBOnboardLambda}
+      RetentionInDays: 90
+  DynDBOnboardLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub cfn-custom-${ProjectName}-dyndb-onboard
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64 # Unfortunatly, for now, arm64 is not supported in Paris (eu-west-3)
+      Description: Lambda called by a CF Custom Resource to insert items in DynamoDB
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+          import os
+          info_table = boto3.resource('dynamodb').Table(os.environ['INFO_TABLE_NAME'])
+          def lambda_handler(event, context):
+              print(json.dumps(event, default=str))
+              try:
+                  vpc_id = event['ResourceProperties']['VpcId']
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      item_to_put={'VPCID': vpc_id}
+                      if event['ResourceProperties'].get('EktName'):
+                          item_to_put['EktName']=event['ResourceProperties'].get('EktName')
+                      if event['ResourceProperties'].get('RemoteRoleARN'):
+                          item_to_put['RemoteRoleARN']=event['ResourceProperties'].get('RemoteRoleARN')
+                      if event['ResourceProperties'].get('AuditBucketName'):
+                          item_to_put['AuditBucketName']=event['ResourceProperties'].get('AuditBucketName')
+                      info_table.put_item(Item=item_to_put)
+                  elif event['RequestType'] == 'Delete':
+                      info_table.delete_item(Key={'VPCID': vpc_id})
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  import traceback
+                  traceback.print_exc()
+                  responseData = {}
+                  responseData['Data'] = str(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+      MemorySize: 128
+      Timeout: 30
+      Role: !GetAtt DynDBOnboardLambdaRole.Arn
+      Environment:
+        Variables:
+          INFO_TABLE_NAME: !GetAtt DataBackendStack.Outputs.VPCInfosTableName
+  DynDBOnboardLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-lambda-cfn-custom-${ProjectName}-dyndb-onboard
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: working-rights
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DataBackendStack.Outputs.VPCInfosTableName}
+  DynDBOnboardLambdaRoleBasicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref DynDBOnboardLambdaRole
+      PolicyName: lambda-basic
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !GetAtt DynDBOnboardLambdaLogGroup.Arn
+
+  CountLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CountLambda}
+      RetentionInDays: 90
+  CountLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub cfn-custom-${ProjectName}-count
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64 # Unfortunatly, for now, arm64 is not supported in Paris (eu-west-3)
+      Description: Lambda called by a CF Custom Resource to count the elems of a list
+      Code:
+        ZipFile: |
+          import json
+          import cfnresponse
+          def lambda_handler(event, context):
+              print(json.dumps(event, default=str))
+              try:
+                  list_elem = event['ResourceProperties'].get('ListElem', [])
+                  # Count non empty items
+                  count = len([e for e in list_elem if e])
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Count': count})
+              except Exception as e:
+                  import traceback
+                  traceback.print_exc()
+                  responseData = {}
+                  responseData['Data'] = str(e)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+      MemorySize: 128
+      Timeout: 10
+      Role: !GetAtt CountLambdaRole.Arn
+  CountLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub role-lambda-cfn-custom-${ProjectName}-count
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+  CountLambdaRoleBasicPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref CountLambdaRole
+      PolicyName: lambda-basic
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !GetAtt CountLambdaLogGroup.Arn
+
+########################################################################
+# Count the HsmIpAddresses because CF does not know how to do that -_- #
+########################################################################
+  CustomCountHsmIpAddresses:
+    Type: Custom::CustomCount
+    DependsOn: CountLambdaRoleBasicPolicy
+    Properties:
+      ServiceToken: !GetAtt CountLambda.Arn
+      ListElem: !Split [',', !Ref HsmIpAddresses]
+
+##########################
+# Sovereign Keys backend #
+##########################
+  DataBackendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        GloballyUniqueCompanyIdentifier: !Ref GloballyUniqueCompanyIdentifier
+        ProjectName: !Ref ProjectName
+        ObjectLockMode: !Ref ObjectLockMode
+      TemplateURL: ./templates/data-backend.yml
+      TimeoutInMinutes: 10
+  VPCAPI:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcName: api
+        WithNAT: !Ref SKVPCNeedNat
+        WithBastion: 'true'
+        BastionAuthorizedRange: !Ref BastionAuthorizedRange
+        NeedPrivateAWSServiceAccess: 'true'
+        EIPAllocationIDs: !Ref EIPAllocationIDs
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/vpc.yml
+      TimeoutInMinutes: 10
+  VPCAPIDynDBOnboard:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: DynDBOnboardLambdaRoleBasicPolicy
+    Properties:
+      Parameters:
+        CustomDynDBOnboardArn: !GetAtt DynDBOnboardLambda.Arn
+        VpcId: !GetAtt VPCAPI.Outputs.VPCID
+      TemplateURL: ./templates/dyndb-onboard.yml
+      TimeoutInMinutes: 5
+  SovereignInstancesStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCAPI
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        SovereignKeysBucketName: !GetAtt DataBackendStack.Outputs.SovereignKeysBucketName
+        AuditBucketName: !GetAtt DataBackendStack.Outputs.AuditBucketName
+        VPCInfosTableName: !GetAtt DataBackendStack.Outputs.VPCInfosTableName
+        HsmType: !Ref HsmType
+        AdditionalSecurityGroup: !Ref AdditionalSecurityGroup
+        HsmIpAddresses: !Ref HsmIpAddresses
+        HsmIpAddressesCount: !GetAtt CustomCountHsmIpAddresses.Count
+        InstanceType: !Ref InstanceType
+        SelfLockerOn: !Ref SelfLockerOn
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/sovereign-instances.yml
+      TimeoutInMinutes: 10
+  RestApiStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        NlbArn: !GetAtt SovereignInstancesStack.Outputs.SovereignInstancesNlbArn
+        VPCInfosTableName: !GetAtt DataBackendStack.Outputs.VPCInfosTableName
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/restapi.yml
+      TimeoutInMinutes: 20
+
+###############################################################
+# VPC and Instance simulating a customer for testing purposes #
+###############################################################
+  VPCCustomerTest:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ProjectName: !Ref ProjectName
+        VpcName: test-customer
+        WithNAT: 'false'
+        WithBastion: 'false'
+        NeedPrivateAWSServiceAccess: 'false'
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/vpc.yml
+      TimeoutInMinutes: 10
+  CustomerTestStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCCustomerTest
+    Properties:
+      Parameters:
+        GloballyUniqueCompanyIdentifier: !Ref GloballyUniqueCompanyIdentifier
+        ProjectName: !Ref ProjectName
+        CustomerName: test-customer
+        ToggleMainResourceCreation: !Ref ToggleMainResourceCreation
+      TemplateURL: ./templates/customer.yml
+      TimeoutInMinutes: 10
+  VPCCustomerDynDBOnboard:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: DynDBOnboardLambdaRoleBasicPolicy
+    Properties:
+      Parameters:
+        CustomDynDBOnboardArn: !GetAtt DynDBOnboardLambda.Arn
+        VpcId: !GetAtt VPCCustomerTest.Outputs.VPCID
+        EktName: test-customer
+        RoleArn: !GetAtt CustomerTestStack.Outputs.SKRoleArn
+        AuditBucketName: !GetAtt CustomerTestStack.Outputs.AuditBucket
+      TemplateURL: ./templates/dyndb-onboard.yml
+      TimeoutInMinutes: 5
+
+Outputs:
+  ApiUrl:
+    Description: The URL of the API
+    Value: !GetAtt RestApiStack.Outputs.ApiUrl

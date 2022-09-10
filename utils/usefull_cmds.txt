@@ -1,0 +1,46 @@
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+
+####################################################################################################
+###########
+# SET KEY #
+###########
+export HISTFILE=/dev/null
+cat > /tmp/ram-store/tmp.key << EOF
+EOF
+curl -X PUT -T /tmp/ram-store/tmp.key http://localhost:8080/client-key
+rm -f /tmp/ram-store/tmp.key
+
+####################################################################################################
+################
+# SET PASSWORD #
+################
+export HISTFILE=/dev/null
+HSM_PIN=""
+curl -H "Content-Type: application/json" -X PUT -d "{\"pin\":\"$HSM_PIN\"}" http://localhost:8080/hsm-pin
+
+####################################################################################################
+#################
+# INSTALL AGENT #
+#################
+aws s3 cp s3://revolve-sovereign-keys-pipeline-artifacts/agent/linux/sovereign-keys-1.1.0-1.noarch.rpm .
+rpm -i --force sovereign-keys-1.1.0-1.noarch.rpm
+rm -rf sovereign-keys-1.1.0-1.noarch.rpm
+
+###################################################################################################
+# List ETCD members
+etcdctl member list -wtable ; etcdctl --insecure-transport=false --insecure-skip-tls-verify endpoint status --endpoints=$(etcdctl member list -wsimple | cut -d"," -f5 | xargs | sed "s/ /,/g") -wtable

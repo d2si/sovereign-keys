@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+# TODO: Add retry mechanic when querying the API
+
+# Load commons constants and functions
+. /usr/lib/sovereign-keys/commons.sh
+
+usage () {
+    echo "Usage: $0 [<OPTIONS>] /dev/<device_name> <mount_point>"
+    echo ""
+    echo "Sovereign Keys volume mount"
+    echo "Mounts a raw block device protected by the Sovereign Keys system"
+    echo "If <mount_point> does not exist, it will be created"
+    echo ""
+    echo "OPTIONS:"
+    echo -e "-h|--help\t\tShow this help"
+    echo -e "--ignore-nitro-check\tBy default, Sovereign Keys require to be on a Nitro-based instance. This flag allows to ignore this prerequisite"
+}
+
+cleanup () {
+    echo "Cleaning up..."
+    umount_secret_store
+    umount_ram_fs
+}
+
+if ! is_user_root ; then
+    echo "MUST be run as root"
+    exit 5
+fi
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -h|--help)
+            usage
+            exit 0
+        ;;
+        --ignore-nitro-check)
+            IGNORE_NITRO_CHECK=YES
+            shift # past argument
+        ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+        ;;
+    esac
+done
+
+# Test nitro
+if ! is_nitro ; then
+    echo "This EC2 instance is not a Nitro-based instance. Sovereign Keys security depends on Nitro !!"
+    if [ -n "$IGNORE_NITRO_CHECK" ] ; then
+        echo "--ignore-nitro-check was set ; volume mount will continue"
+    else
+        echo "You can use '--ignore-nitro-check' to ignore this warning. Exiting."
+        exit 3
+    fi
+fi
+
+# Should only have 2 positional arguments
+if [ ${#POSITIONAL[@]} -ne 2 ] ; then
+    echo "Exactly 2 positional arguments are expected"
+    usage
+    exit 2
+fi
+
+# Argument 1 should be a volume /dev/something
+DEVICE="${POSITIONAL[0]}"
+if [ ! -b $DEVICE ] ; then
+    echo "$DEVICE is not a block device"
+    usage
+    exit 2
+fi
+
+# Argument 2 should be a folder
+MOUNT_POINT="${POSITIONAL[1]}"
+
+# Exactly two partition must exist, else this volume was not properly prep-ed
+SECRET_PARTITION_DEVICE=${DEVICE}128
+PARTITION_DEVICE=${DEVICE}1
+if [ ! -b $SECRET_PARTITION_DEVICE ] || [ ! -b $PARTITION_DEVICE ] ; then
+    echo "$DEVICE is not a Sovereign Keys volume. Please use 'sk-prep-vol' to prepare the volume"
+    exit 4
+fi
+
+# Mount the Secret Store FS
+# Create the working space RAM disk
+mount_ram_fs
+if [ $? -ne 0 ] ; then echo "ERROR while creating the ram FS!!" ; exit 1 ; fi
+# Mount the Secret Store FS
+mount_secret_store $SECRET_PARTITION_DEVICE
+if [ $? -ne 0 ] ; then echo "ERROR while mounting the secret store!!" ; cleanup ; exit 1 ; fi
+
+# Retrieve the secret
+# Extract the volume UUID
+VOLUME_UUID=$(get_device_guid $DEVICE)
+# Get a RSA public key
+PUB_KEY=$(get_rsa_pub_key)
+# Encode the encrypted secret
+ENC_SECRET=$(get_encrypted_secret)
+log "Asking Revolve Sovereign Key API to decrypt the secret..."
+RES=$(curl -sf -H "Authorization: Custom" -H "Content-Type: application/json" -X POST -d "{\"encrypted_secret\": \"$ENC_SECRET\", \"rsa_wrapping_key\": \"$PUB_KEY\", \"volume_uuid\": \"$VOLUME_UUID\"}" $BASE_URL/encryption/$INSTANCE_ID/decrypt-secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Control signature
+log "Verifying the signature of the wrapped secret..."
+if ! verify_signature $(echo $RES | jq -r .wrapped_secret) $(echo $RES | jq -r .wrapped_secret_signature) ; then
+    echo "CRITICAL: Wrapped secret has not be created by the Revolve API"
+    cleanup
+    exit 1
+else
+    echo "OK"
+fi
+# Unwrap the wraped secret
+log "Unwrapping the wrapped version of the secret..."
+unwrap_secret $(echo $RES | jq -r .wrapped_secret)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Mount the volume
+log "Mounting the encrypted data volume..."
+mount_crypto_volume $PARTITION_DEVICE $MOUNT_POINT
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; cleanup ; exit 1 ; fi
+
+# Unmounting everything
+cleanup
+
+echo "Success"
+exit 0

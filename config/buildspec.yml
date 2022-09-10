@@ -1,0 +1,136 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      python: 3.8
+    commands:
+      - echo Entered the install phase on `date`
+      - |
+        echo Create cachedir if necessary
+        mkdir -p cachedir
+        export CACHE_DIR=$CODEBUILD_SRC_DIR/cachedir
+      - |
+        echo Installing pre-reqs
+        yum install -y rpm-build gmp-devel xmltoman
+    finally:
+      - echo Exiting the install phase on `date`
+  pre_build:
+    commands:
+      - echo Entered the pre_build phase on `date`
+      - |
+        echo Installing dependencies for the lambdas
+        for LAMBDA in $(ls ./lambdas) ; do
+          echo Installing dependencies for lmabda $LAMBDA
+          pip3 install -r ./lambdas/$LAMBDA/requirements.txt -t ./lambdas/$LAMBDA
+          rm ./lambdas/$LAMBDA/requirements.txt
+        done
+      - |
+        echo Installing python dependencies
+        pip3 install -r ./sovereign_keys_api/requirements.txt -t ./sovereign_keys_api/
+      - |
+        echo Creating the rpm-build directory structure
+        mkdir -p ~/rpmbuild/RPMS/noarch
+        mkdir -p ~/rpmbuild/SOURCES
+        mkdir -p ~/rpmbuild/SPECS
+        mkdir -p ~/rpmbuild/SRPMS
+        ln -s $(pwd)/agent/linux/rpm.spec ~/rpmbuild/SPECS/rpm.spec
+        ls -lhR ~/rpmbuild
+    finally:
+      - |
+        # Fixing all timestamps to avoid changing zipfiles when no file really changed
+        find . -not -path '*/.*' -exec touch -a -m -t"201001010000.00" {} \;
+      - echo Exiting the pre_build phase on `date`
+  build:
+    commands:
+      - echo Entered the build phase on `date`
+      - |
+        echo Creating the rpm file
+        cd ~/rpmbuild/SPECS/
+        rpmbuild --target noarch -bb rpm.spec
+        cd $CODEBUILD_SRC_DIR
+      - |
+        if ! [ -f $CACHE_DIR/ssss-split ] ; then
+          echo Compiling SSSS from github
+          git clone https://github.com/osresearch/ssss.git
+          # Compile
+          cd ssss
+          # Checkout to e2d11c3c128c992947afbe18accb7be1ac55feed (master on 2022-05-05)
+          git checkout e2d11c3c128c992947afbe18accb7be1ac55feed
+          make clean
+          make ssss-split ssss.1
+          ls -lhR
+          # Compress man page
+          gzip ssss.1
+          mv ssss-split $CACHE_DIR/ssss-split
+          mv ssss.1.gz $CACHE_DIR/ssss.1.gz
+          cd $CODEBUILD_SRC_DIR
+        fi
+    finally:
+      - |
+        # Fixing all timestamps to avoid changing zipfiles when no file really changed
+        find . -not -path '*/.*' -exec touch -a -m -t"201001010000.00" {} \;
+      - echo Exiting the build phase on `date`
+  post_build:
+    commands:
+      - echo Entered the post_build phase on `date`
+      - |
+        echo Packaging the sub-templates file references...
+        for SUBTEMPLATE in $(ls ./templates) ; do
+          echo Packaging sub-template $SUBTEMPLATE
+          mv ./templates/$SUBTEMPLATE ./templates/$SUBTEMPLATE.bak
+          aws cloudformation package --template-file ./templates/$SUBTEMPLATE.bak --s3-bucket $BUCKET --s3-prefix templates --output-template-file ./templates/$SUBTEMPLATE
+        done
+      - |
+        echo Packaging the main-template file references...
+        mv main-template.yml main-template.yml.bak
+        aws cloudformation package --template-file main-template.yml.bak --s3-bucket $BUCKET --s3-prefix templates --output-template-file main-template.yml
+      - |
+        echo Sending all scripts to S3
+        aws s3 sync sovereign-instances s3://$BUCKET/sovereign-instances
+      - |
+        echo Uploading functional-testing.sh to S3
+        aws s3 cp utils/functional-testing.sh s3://$BUCKET/utils/functional-testing.sh
+      - |
+        echo Packaging sovereign_keys_api to S3
+        ARCHIVE_NAME=sovereign_keys_api.tgz
+        tar cvzf $ARCHIVE_NAME sovereign_keys_api/
+        echo Computing MD5 checksum of $ARCHIVE_NAME
+        local_md5=$(md5sum $ARCHIVE_NAME | cut -f1 -d" ")
+        s3key="sovereign-instances/$ARCHIVE_NAME"
+        if ! remote_md5=$(aws s3api head-object --bucket $BUCKET --key $s3key --query Metadata.md5sum --output text) || [ "$remote_md5" != "$local_md5" ] ; then
+          echo Uploading $ARCHIVE_NAME to s3://$BUCKET/$s3key
+          aws s3 cp $ARCHIVE_NAME s3://$BUCKET/$s3key --metadata md5sum=$local_md5
+        fi
+      - |
+        echo Uploading the Linux agent RPM to S3
+        FILENAME=$(basename $(ls ~/rpmbuild/RPMS/noarch/*.rpm))
+        aws s3 cp ~/rpmbuild/RPMS/noarch/$FILENAME s3://$BUCKET/agent/linux/$FILENAME
+      - |
+        echo Uploading SSSS to S3
+        FILENAME=$CACHE_DIR/ssss-split
+        echo Computing MD5 checksum of $FILENAME
+        local_md5=$(md5sum $FILENAME | cut -f1 -d" ")
+        s3key="sovereign-instances/ssss/ssss"
+        if ! remote_md5=$(aws s3api head-object --bucket $BUCKET --key $s3key --query Metadata.md5sum --output text) || [ "$remote_md5" != "$local_md5" ] ; then
+          echo Uploading $FILENAME to s3://$BUCKET/$s3key
+          aws s3 cp $FILENAME s3://$BUCKET/$s3key --metadata md5sum=$local_md5
+        fi
+        FILENAME=$CACHE_DIR/ssss.1.gz
+        echo Computing MD5 checksum of $FILENAME
+        local_md5=$(md5sum $FILENAME | cut -f1 -d" ")
+        s3key="sovereign-instances/ssss/ssss.1.gz"
+        if ! remote_md5=$(aws s3api head-object --bucket $BUCKET --key $s3key --query Metadata.md5sum --output text) || [ "$remote_md5" != "$local_md5" ] ; then
+          echo Uploading $FILENAME to s3://$BUCKET/$s3key
+          aws s3 cp $FILENAME s3://$BUCKET/$s3key --metadata md5sum=$local_md5
+        fi
+    finally:
+      - echo Exiting the post_build phase on `date`
+artifacts:
+  base-directory: .
+  files:
+    - main-template.yml
+    - main-configuration.json
+  discard-paths: yes
+cache:
+  paths:
+    - cachedir/**/*

@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# Copyright 2022 Devoteam Revolve (D2SI SAS)
+# This file is part of `Sovereign Keys`.
+#
+# `Sovereign Keys` is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# `Sovereign Keys` is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with `Sovereign Keys`. If not, see <http://www.gnu.org/licenses/>.
+
+# Load commons constants and functions
+. /usr/lib/sovereign-keys/commons.sh
+
+usage () {
+    echo "Usage: $0 [<OPTIONS>] <mount_point>"
+    echo ""
+    echo "Sovereign Keys volume unmount"
+    echo "Unmounts a device protected by the Sovereign Keys system from the specified <mount_point>"
+    echo ""
+    echo "OPTIONS:"
+    echo -e "-h|--help\t\tShow this help"
+}
+
+if ! is_user_root ; then
+    echo "MUST be run as root"
+    exit 5
+fi
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+    case $key in
+        -h|--help)
+            usage
+            exit 0
+        ;;
+        *)    # unknown option
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+        ;;
+    esac
+done
+
+# Should only have 1 positional argument
+if [ ${#POSITIONAL[@]} -ne 1 ] ; then
+    echo "A mount point is expected"
+    usage
+    exit 2
+fi
+
+# Argument 1 should be a mountpoint of a sovereign key volume
+MOUNT_POINT="${POSITIONAL[0]}"
+if [ ! -d $MOUNT_POINT ] ; then
+    echo "Folder $MOUNT_POINT does not exist"
+    usage
+    exit 2
+fi
+
+# Find the mapper
+log "Finding mapper name for $MOUNT_POINT..."
+MAPPER_NAME=$(get_mapper_name_for_mountpoint $MOUNT_POINT)
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+# Umount the mount point
+log "Unmounting $MOUNT_POINT..."
+umount $MOUNT_POINT
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+# Close the cryptoMapper
+log "Closing crypto mapper $MAPPER_NAME..."
+cryptsetup close $MAPPER_NAME
+if [ $? -eq 0 ] ; then echo "OK" ; else echo "NOK" ; exit 1 ; fi
+
+echo "Success"
+exit 0
