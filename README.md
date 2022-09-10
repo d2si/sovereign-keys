@@ -82,8 +82,8 @@
     <li>
       <a href="#architecture">Architecture</a>
       <ul>
-        <li><a href="#technical-overview">Technical Overview</a></li>
         <li><a href="#functional-design">Functional Design</a></li>
+        <li><a href="#technical-overview">Technical Overview</a></li>
         <li><a href="#cryptographic-security">Cryptographic security</a></li>
         <li><a href="#key-hierarchy">Key hierarchy</a></li>
         <li><a href="#customer-instance-interactions-with-sovereign-keys">Customer instance interactions with Sovereign Keys</a></li>
@@ -1316,6 +1316,17 @@ Note that the bastion will be kept running, you can shut it down manually if you
 <!-- ARCHITECTURE -->
 # Architecture
 
+## Functional Design
+`Sovereign Keys` is a system that provides EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefore encrypted at the OS level and data written on the volume never leaves the instance in clear-text. This is slightly different from what happens with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that performs the encryption/decryption process. The `Sovereign Keys` system can be divided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
+
+This simple illustration summarize the previous paragraph:
+
+![Simple illustration](images/simple-illustration.png)
+
+Note that AWS KMS is present on the schema only to underline how it differs from the `Sovereign Keys` encryption; but KMS does not play any role in the architecture: it can be used or not without any impact.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ## Technical Overview
 
 The installation steps you have or will follow ultimately deploy the following technical stack:
@@ -1331,17 +1342,6 @@ A more "real" architecture would look like this:
 ![Architecture Overview](images/architecture-overview.png)
 
 It is quite the same, but it shows the fact that multiple VPCs in multiple AWS accounts can use the `Sovereign Keys` API. Also, for a production environment you might not want NAT instances giving Internet access to the API instances but instead use VPC endpoints to only enable the communication with the necessary AWS services.
-
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-## Functional Design
-`Sovereign Keys` is a system that provides EC2 instances with a secret. This secret is requested by an instance through a local agent and is used to protect a data volume with LUKS or BitLocker depending on the OS. The entire data volume is therefore encrypted at the OS level and data written on the volume never leaves the instance in clear-text. This is slightly different from what happens with [AWS KMS](https://aws.amazon.com/kms/) where it is the hypervisor that performs the encryption/decryption process. The `Sovereign Keys` system can be divided between the "API" and the backing HSM. The "API" part is typically hosted on AWS itself, whereas the HSM can be hosted anywhere as long as you can make them available from an [AWS VPC](https://aws.amazon.com/vpc/).
-
-This simple illustration summarize the previous paragraph:
-
-![Simple illustration](images/simple-illustration.png)
-
-Note that AWS KMS is present on the schema only to underline how it differs from the `Sovereign Keys` encryption; but KMS does not play any role in the architecture: it can be used or not without any impact.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
